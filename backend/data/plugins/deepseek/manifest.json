@@ -1,0 +1,10 @@
+{
+  "name": "deepseek",
+  "label": "DeepSeek",
+  "category": "model",
+  "version": "1.0.0",
+  "entry": "deepseek.provider:DeepSeekProvider",
+  "requires": [
+    "langchain-openai>=0.2"
+  ]
+}

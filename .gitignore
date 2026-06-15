@@ -41,6 +41,6 @@ build/
 .vscode/
 
 # 后端运行期产物（SQLite、上传文件、日志）
-backend/data/
-backend/uvicorn.log
+# backend/data/
+# backend/uvicorn.log
 *.log
