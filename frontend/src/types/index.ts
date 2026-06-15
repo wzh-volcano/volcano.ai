@@ -52,4 +52,9 @@ export interface KnowledgeBase {
   createdAt: string;
   updatedAt: string;
   files: KnowledgeBaseFile[];
+  // 后端返回的附加信息（mock 时可选）
+  docCount?: number;
+  chunkCount?: number;
+  status?: string;
+  embeddingModel?: string;
 }

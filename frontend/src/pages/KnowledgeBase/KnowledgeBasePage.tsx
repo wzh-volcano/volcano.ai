@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { KnowledgeBaseForm } from './KnowledgeBaseForm';
@@ -20,6 +20,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import type { KnowledgeBase } from '@/types';
 
@@ -28,13 +30,22 @@ const PAGE_SIZE = 8;
 export const KnowledgeBasePage: React.FC = () => {
   const navigate = useNavigate();
   const knowledgeBases = useAppStore((s) => s.knowledgeBases);
+  const kbLoading = useAppStore((s) => s.kbLoading);
+  const kbError = useAppStore((s) => s.kbError);
+  const loadKnowledgeBases = useAppStore((s) => s.loadKnowledgeBases);
   const createKnowledgeBase = useAppStore((s) => s.createKnowledgeBase);
   const updateKnowledgeBase = useAppStore((s) => s.updateKnowledgeBase);
   const deleteKnowledgeBase = useAppStore((s) => s.deleteKnowledgeBase);
 
+  // 进入页面拉取后端最新列表
+  useEffect(() => {
+    loadKnowledgeBases();
+  }, [loadKnowledgeBases]);
+
   const [formOpen, setFormOpen] = useState(false);
   const [editingKb, setEditingKb] = useState<KnowledgeBase | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeBase | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -56,9 +67,14 @@ export const KnowledgeBasePage: React.FC = () => {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, safePage]);
 
-  const handleCreate = (name: string, description: string) => {
-    createKnowledgeBase(name, description);
-    setCurrentPage(1);
+  const handleCreate = async (name: string, description: string) => {
+    setSubmitting(true);
+    try {
+      await createKnowledgeBase(name, description);
+      setCurrentPage(1);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleEdit = (name: string, description: string) => {
@@ -68,9 +84,9 @@ export const KnowledgeBasePage: React.FC = () => {
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteTarget) {
-      deleteKnowledgeBase(deleteTarget.id);
+      await deleteKnowledgeBase(deleteTarget.id);
       setDeleteTarget(null);
       setCurrentPage(1);
     }
@@ -113,7 +129,7 @@ export const KnowledgeBasePage: React.FC = () => {
               className="pl-8 w-56 h-8 text-xs"
             />
           </div>
-          <Button size="sm" onClick={openCreate} className="gap-1.5">
+          <Button size="sm" onClick={openCreate} className="gap-1.5" disabled={submitting}>
             <Plus size={14} />
             新建知识库
           </Button>
@@ -122,7 +138,21 @@ export const KnowledgeBasePage: React.FC = () => {
 
       {/* 列表 */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {filtered.length === 0 ? (
+        {kbLoading ? (
+          <div className="flex flex-col items-center justify-center h-full text-text-dim gap-3">
+            <Loader2 size={28} className="animate-spin text-text-mute" />
+            <p className="text-sm">加载知识库...</p>
+          </div>
+        ) : kbError && knowledgeBases.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-text-dim gap-3">
+            <AlertCircle size={28} className="text-warning" />
+            <p className="text-sm">无法连接后端：{kbError}</p>
+            <p className="text-2xs text-text-mute">请确认 backend 已启动（默认 http://127.0.0.1:8000）</p>
+            <Button variant="ghost" size="sm" onClick={() => loadKnowledgeBases()}>
+              重试
+            </Button>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-text-dim gap-3">
             <FolderOpen size={40} className="text-text-mute opacity-50" />
             <p className="text-sm">{query ? '未找到匹配的知识库' : '暂无知识库'}</p>
@@ -134,6 +164,12 @@ export const KnowledgeBasePage: React.FC = () => {
           </div>
         ) : (
           <>
+            {kbError && (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-warning/10 text-warning text-xs">
+                <AlertCircle size={14} />
+                <span>后端同步失败：{kbError}（当前显示本地缓存）</span>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
               {paginated.map((kb) => (
                 <div
@@ -169,7 +205,7 @@ export const KnowledgeBasePage: React.FC = () => {
                   <h3 className="text-sm font-medium text-text mt-3 truncate">{kb.name}</h3>
                   <p className="text-xs text-text-dim mt-1 line-clamp-2 h-8">{kb.description || '暂无描述'}</p>
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-border text-2xs text-text-mute">
-                    <span>{kb.files.length} 个文件</span>
+                    <span>{kb.docCount ?? kb.files.length} 个文件</span>
                     <span>更新于 {kb.updatedAt}</span>
                   </div>
                 </div>

@@ -39,3 +39,8 @@ build/
 # IDE 配置文件
 .idea/
 .vscode/
+
+# 后端运行期产物（SQLite、上传文件、日志）
+backend/data/
+backend/uvicorn.log
+*.log

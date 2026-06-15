@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { KnowledgeBaseForm } from './KnowledgeBaseForm';
@@ -20,6 +20,8 @@ import {
   FolderOpen,
   File,
   X,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
 export const KnowledgeBaseDetail: React.FC = () => {
@@ -30,13 +32,21 @@ export const KnowledgeBaseDetail: React.FC = () => {
   const knowledgeBases = useAppStore((s) => s.knowledgeBases);
   const updateKnowledgeBase = useAppStore((s) => s.updateKnowledgeBase);
   const deleteKnowledgeBase = useAppStore((s) => s.deleteKnowledgeBase);
-  const addFileToKnowledgeBase = useAppStore((s) => s.addFileToKnowledgeBase);
+  const loadFiles = useAppStore((s) => s.loadFiles);
+  const uploadFiles = useAppStore((s) => s.uploadFiles);
   const removeFileFromKnowledgeBase = useAppStore((s) => s.removeFileFromKnowledgeBase);
 
   const kb = knowledgeBases.find((k) => k.id === id);
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // 进入详情页拉取该知识库的文件列表
+  useEffect(() => {
+    if (id) loadFiles(id);
+  }, [id, loadFiles]);
 
   if (!kb) {
     return (
@@ -54,35 +64,33 @@ export const KnowledgeBaseDetail: React.FC = () => {
     updateKnowledgeBase(kb.id, { name, description });
   };
 
-  const handleDeleteKb = () => {
-    deleteKnowledgeBase(kb.id);
+  const handleDeleteKb = async () => {
+    await deleteKnowledgeBase(kb.id);
     navigate('/knowledge-base');
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach((f) => {
-      const newFile = {
-        id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        name: f.name,
-        size: f.size > 1024 * 1024
-          ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
-          : `${Math.ceil(f.size / 1024)} KB`,
-        type: f.name.split('.').pop() || 'unknown',
-        uploadedAt: new Date().toLocaleDateString('zh-CN'),
-      };
-      addFileToKnowledgeBase(kb.id, newFile);
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      await uploadFiles(kb.id, Array.from(files));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
-  const handleRemoveFile = () => {
+  const handleRemoveFile = async () => {
     if (deleteFileTarget) {
-      removeFileFromKnowledgeBase(kb.id, deleteFileTarget);
+      await removeFileFromKnowledgeBase(kb.id, deleteFileTarget);
       setDeleteFileTarget(null);
     }
   };
+
 
   const getFileIcon = (type: string) => {
     const colorMap: Record<string, string> = {
@@ -154,9 +162,14 @@ export const KnowledgeBaseDetail: React.FC = () => {
           {/* 文件管理 */}
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-text">文件列表</h3>
-            <Button size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={14} />
-              添加文件
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {uploading ? '上传中...' : '添加文件'}
             </Button>
             <input
               ref={fileInputRef}
@@ -166,6 +179,13 @@ export const KnowledgeBaseDetail: React.FC = () => {
               onChange={handleFileSelect}
             />
           </div>
+
+          {uploadError && (
+            <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-error/10 text-error text-xs">
+              <AlertCircle size={14} />
+              <span>上传失败：{uploadError}</span>
+            </div>
+          )}
 
           {kb.files.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-text-dim gap-2 border border-dashed border-border rounded-xl">

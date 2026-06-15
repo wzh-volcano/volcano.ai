@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { TaskGroup, Message, ProgressItem, GitChange, KnowledgeBase, KnowledgeBaseFile } from '@/types';
+import { api } from '@/lib/api';
 
 interface AppState {
   taskGroups: TaskGroup[];
@@ -11,12 +12,18 @@ interface AppState {
   goalMeta: string;
   goalStatus: string;
   knowledgeBases: KnowledgeBase[];
+  kbLoading: boolean;
+  kbError: string | null;
   setActiveTask: (groupIndex: number, taskIndex: number) => void;
-  createKnowledgeBase: (name: string, description: string) => void;
+  loadKnowledgeBases: () => Promise<void>;
+  createKnowledgeBase: (name: string, description: string) => Promise<void>;
   updateKnowledgeBase: (id: string, data: Partial<Pick<KnowledgeBase, 'name' | 'description'>>) => void;
-  deleteKnowledgeBase: (id: string) => void;
+  deleteKnowledgeBase: (id: string) => Promise<void>;
+  loadFiles: (kbId: string) => Promise<void>;
+  uploadFiles: (kbId: string, files: File[]) => Promise<void>;
+  removeFileFromKnowledgeBase: (kbId: string, fileId: string) => Promise<void>;
+  // 旧接口保留兼容（本地即时更新，不调后端）
   addFileToKnowledgeBase: (kbId: string, file: KnowledgeBaseFile) => void;
-  removeFileFromKnowledgeBase: (kbId: string, fileId: string) => void;
 }
 
 const now = () => new Date().toLocaleString('zh-CN');
@@ -180,6 +187,21 @@ export const useAppStore = create<AppState>((set) => ({
       files: [],
     },
   ],
+  kbLoading: false,
+  kbError: null,
+  loadKnowledgeBases: async () => {
+    set({ kbLoading: true, kbError: null });
+    try {
+      const kbs = await api.listKbs();
+      set({ knowledgeBases: kbs, kbLoading: false });
+    } catch (e) {
+      set({
+        kbLoading: false,
+        kbError: e instanceof Error ? e.message : String(e),
+      });
+      // 失败时保留本地 mock 数据，UI 仍可用
+    }
+  },
   setActiveTask: (groupIndex: number, taskIndex: number) => {
     set((state) => {
       const groups = state.taskGroups.map((g, gi) => ({
@@ -192,16 +214,25 @@ export const useAppStore = create<AppState>((set) => ({
       return { taskGroups: groups };
     });
   },
-  createKnowledgeBase: (name: string, description: string) => {
-    const newKb: KnowledgeBase = {
-      id: `kb-${Date.now()}`,
-      name,
-      description,
-      createdAt: now(),
-      updatedAt: now(),
-      files: [],
-    };
-    set((state) => ({ knowledgeBases: [...state.knowledgeBases, newKb] }));
+  createKnowledgeBase: async (name: string, description: string) => {
+    try {
+      const created = await api.createKb(name, description);
+      set((state) => ({ knowledgeBases: [created, ...state.knowledgeBases], kbError: null }));
+    } catch (e) {
+      // 后端不可用时回退到本地
+      const newKb: KnowledgeBase = {
+        id: `local-${Date.now()}`,
+        name,
+        description,
+        createdAt: now(),
+        updatedAt: now(),
+        files: [],
+      };
+      set((state) => ({
+        knowledgeBases: [newKb, ...state.knowledgeBases],
+        kbError: e instanceof Error ? e.message : String(e),
+      }));
+    }
   },
   updateKnowledgeBase: (id: string, data) => {
     set((state) => ({
@@ -210,10 +241,38 @@ export const useAppStore = create<AppState>((set) => ({
       ),
     }));
   },
-  deleteKnowledgeBase: (id: string) => {
-    set((state) => ({
-      knowledgeBases: state.knowledgeBases.filter((kb) => kb.id !== id),
-    }));
+  deleteKnowledgeBase: async (id: string) => {
+    const previous = useAppStore.getState().knowledgeBases;
+    // 乐观删除
+    set((state) => ({ knowledgeBases: state.knowledgeBases.filter((kb) => kb.id !== id) }));
+    try {
+      await api.deleteKb(id);
+    } catch (e) {
+      // 失败回滚
+      set({ knowledgeBases: previous, kbError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+  loadFiles: async (kbId: string) => {
+    try {
+      const files = await api.listDocuments(kbId);
+      set((state) => ({
+        knowledgeBases: state.knowledgeBases.map((kb) =>
+          kb.id === kbId ? { ...kb, files } : kb
+        ),
+      }));
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+  uploadFiles: async (kbId: string, files: File[]) => {
+    try {
+      await api.uploadDocuments(kbId, files);
+      // 上传后刷新文件列表
+      await useAppStore.getState().loadFiles(kbId);
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
   },
   addFileToKnowledgeBase: (kbId: string, file: KnowledgeBaseFile) => {
     set((state) => ({
@@ -224,7 +283,8 @@ export const useAppStore = create<AppState>((set) => ({
       ),
     }));
   },
-  removeFileFromKnowledgeBase: (kbId: string, fileId: string) => {
+  removeFileFromKnowledgeBase: async (kbId: string, fileId: string) => {
+    const previous = useAppStore.getState().knowledgeBases;
     set((state) => ({
       knowledgeBases: state.knowledgeBases.map((kb) =>
         kb.id === kbId
@@ -232,5 +292,11 @@ export const useAppStore = create<AppState>((set) => ({
           : kb
       ),
     }));
+    try {
+      await api.deleteDocument(fileId);
+    } catch (e) {
+      // 失败回滚
+      set({ knowledgeBases: previous, kbError: e instanceof Error ? e.message : String(e) });
+    }
   },
 }));
