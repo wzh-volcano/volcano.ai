@@ -1,0 +1,24 @@
+# Web 框架
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# 配置 & ORM
+pydantic-settings==2.7.1
+SQLAlchemy==2.0.36
+
+# LangChain
+langchain==0.3.14
+langchain-core==0.3.28
+langchain-openai==0.3.0
+langchain-community==0.3.14
+
+# 可选 provider（按需启用）
+# langchain-ollama==0.2.3
+
+# 文档解析
+pypdf==5.1.0
+python-docx==1.1.2
+
+# 向量计算（纯 Python，无 native 依赖）
+numpy==2.2.1
