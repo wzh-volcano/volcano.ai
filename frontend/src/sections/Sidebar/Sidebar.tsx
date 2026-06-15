@@ -1,18 +1,54 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Plus,
   Square,
   Wand2,
   Library,
   LayoutGrid,
-  Settings,
+  Users,
+  Puzzle,
+  LogOut,
+  KeyRound,
+  ChevronUp,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const taskGroups = useAppStore((s) => s.taskGroups);
   const setActiveTask = useAppStore((s) => s.setActiveTask);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const logout = useAuthStore((s) => s.logout);
+
+  const [changePwdOpen, setChangePwdOpen] = useState(false);
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSubmitting, setPwdSubmitting] = useState(false);
+
+  const isAdmin = currentUser?.role === 'admin';
 
   const menuItemClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13px] transition-colors duration-150 cursor-pointer ${
@@ -20,6 +56,35 @@ export const Sidebar: React.FC = () => {
         ? 'bg-bg-active text-text'
         : 'text-text hover:bg-bg-hover'
     }`;
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!oldPwd || !newPwd) {
+      setPwdError('请填写原密码和新密码');
+      return;
+    }
+    if (newPwd.length < 6) {
+      setPwdError('新密码长度至少 6 位');
+      return;
+    }
+    setPwdSubmitting(true);
+    setPwdError('');
+    try {
+      const { api } = await import('@/lib/api');
+      await api.changePassword(oldPwd, newPwd);
+      setChangePwdOpen(false);
+      setOldPwd('');
+      setNewPwd('');
+    } catch (err) {
+      setPwdError(err instanceof Error ? err.message : '修改失败');
+    } finally {
+      setPwdSubmitting(false);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+  };
 
   return (
     <aside className="bg-[#16191d] border-r border-border flex flex-col overflow-hidden">
@@ -42,6 +107,18 @@ export const Sidebar: React.FC = () => {
           <Library size={16} className="text-text-dim" />
           知识库
         </NavLink>
+        {isAdmin && (
+          <NavLink to="/users" className={menuItemClass}>
+            <Users size={16} className="text-text-dim" />
+            用户管理
+          </NavLink>
+        )}
+        {isAdmin && (
+          <NavLink to="/plugins" className={menuItemClass}>
+            <Puzzle size={16} className="text-text-dim" />
+            插件管理
+          </NavLink>
+        )}
       </nav>
 
       {/* 任务列表 */}
@@ -81,14 +158,85 @@ export const Sidebar: React.FC = () => {
         ))}
       </div>
 
-      {/* 用户信息 */}
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-t border-border bg-[#14171b]">
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent to-[#b58cff] inline-flex items-center justify-center font-semibold text-xs text-white">
-          R
-        </div>
-        <span className="flex-1 text-[13px]">Ryan Bot</span>
-        <Settings size={16} className="text-text-dim cursor-pointer" />
-      </div>
+      {/* 用户信息（可点击弹出下拉菜单） */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-2.5 px-3.5 py-2.5 border-t border-border bg-[#14171b] w-full text-left hover:bg-bg-hover transition-colors">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent to-[#b58cff] inline-flex items-center justify-center font-semibold text-xs text-white shrink-0">
+              {currentUser?.username?.charAt(0)?.toUpperCase() ?? 'U'}
+            </div>
+            <span className="flex-1 text-[13px] text-text truncate">
+              {currentUser?.username ?? '未知用户'}
+            </span>
+            <ChevronUp size={14} className="text-text-dim shrink-0" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="start" sideOffset={4} className="w-48 mb-2">
+          <DropdownMenuLabel className="text-text-dim">
+            {currentUser?.role === 'admin' ? '管理员' : '普通用户'}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setChangePwdOpen(true)}>
+            <KeyRound size={14} />
+            修改密码
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleLogout} className="text-error focus:text-error">
+            <LogOut size={14} />
+            退出登录
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* 修改密码弹窗 */}
+      <Dialog open={changePwdOpen} onOpenChange={setChangePwdOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <form onSubmit={handleChangePassword}>
+            <DialogHeader>
+              <DialogTitle>修改密码</DialogTitle>
+              <DialogDescription>修改当前账号的登录密码</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="old-pwd">原密码</Label>
+                <Input
+                  id="old-pwd"
+                  type="password"
+                  value={oldPwd}
+                  onChange={(e) => { setOldPwd(e.target.value); setPwdError(''); }}
+                  placeholder="输入原密码"
+                  autoFocus
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="new-pwd">新密码</Label>
+                <Input
+                  id="new-pwd"
+                  type="password"
+                  value={newPwd}
+                  onChange={(e) => { setNewPwd(e.target.value); setPwdError(''); }}
+                  placeholder="输入新密码（至少 6 位）"
+                />
+              </div>
+              {pwdError && (
+                <div className="flex items-center gap-2 text-xs text-error">
+                  <AlertCircle size={14} />
+                  <span>{pwdError}</span>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setChangePwdOpen(false)}>
+                取消
+              </Button>
+              <Button type="submit" disabled={pwdSubmitting}>
+                {pwdSubmitting && <Loader2 size={14} className="animate-spin" />}
+                确认修改
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 };

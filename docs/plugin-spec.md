@@ -1,0 +1,263 @@
+# 模型插件开发规范（v1）
+
+本规范定义在 **volcano.ai** 平台中开发**模型类**插件（`category="model"`）所需遵循的目录结构、清单字段、Provider 类接口与发布流程。
+
+> 当前 `category` 取值仅规范化了 `"model"`（模型厂商，提供 LLM / Embedding 能力），其它分类待业务确定后另行扩展。
+
+---
+
+## 1. 概念
+
+- **插件 = Provider 类 + DB 配置行**。
+  插件代码由开发者打包；运行时配置（`base_url` / `api_key` / `llm_model` / `embedding_model` 等）保存在 `provider_configs` 表，由管理员在前端「插件管理」页面填写。
+- **内置（builtin）**：随后端代码一起发布，例如 `zhipu` / `openai_like` / `ollama`。
+- **上传（uploaded）**：管理员通过「上传 zip」或「URL 导入」安装，解压到 `backend/data/plugins/<name>/`，启动时自动扫描注册。
+- **唯一激活**：全局只有一个 provider 可处于 `is_active=True`，所有 LLM/Embedding 调用都走它。
+
+---
+
+## 2. 目录结构
+
+打包前的目录最小形态：
+
+```
+my_plugin/
+├── manifest.json        # 必需：插件清单
+├── provider.py          # 必需：Provider 类实现
+└── README.md            # 可选：文档
+```
+
+打包成 `my_plugin.zip` 时，**允许**直接把上述文件放在 zip 根，**也允许**包成一个同名子目录（系统会自动识别一层）。
+
+> 推荐把所有模块放在一个独立 Python 包内（例如 `my_plugin/__init__.py`），避免 `provider.py` 这类常见名字与其它插件 / 平台模块冲突，因为加载时插件目录会被加入 `sys.path`。
+
+---
+
+## 3. `manifest.json`
+
+```json
+{
+  "name": "my_provider",
+  "label": "My Provider",
+  "category": "model",
+  "version": "0.1.0",
+  "entry": "my_plugin.provider:MyProvider",
+  "requires": [
+    "langchain-openai>=0.2"
+  ]
+}
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `name` | 是 | 插件唯一标识，必须匹配 `^[a-zA-Z0-9_]{2,32}$`，建议小写下划线。最终也是 `provider_configs.name`。 |
+| `label` | 是 | 在管理界面展示的中文名。 |
+| `category` | 否 | 默认 `"model"`。当前仅规范化此值。 |
+| `version` | 建议 | 语义化版本号，便于升级。 |
+| `entry` | 是 | 形如 `"模块路径:类名"`。模块路径相对插件根目录可被 import。 |
+| `requires` | 否 | 第三方依赖列表。**平台不会自动 pip install**；缺包时 `provider_configs.error` 会记录 `ModuleNotFoundError`。请在 `README.md` 中写清需要在后端环境提前安装哪些包。 |
+
+`name` 一旦发布请保持稳定——它是 DB 行的主键，重命名会破坏已有配置。
+
+---
+
+## 4. Provider 类接口
+
+Provider 类需要实现以下方法（推荐继承 `OpenAILikeProvider` 复用 OpenAI 兼容协议；如要接入完全自定义协议则从零实现）。
+
+### 4.1 构造函数（必须）
+
+```python
+def __init__(self, config: dict | None = None) -> None: ...
+```
+
+- `config` 由平台在每次实例化时注入，包含字段：
+  - `base_url: str`
+  - `api_key: str`
+  - `llm_model: str`
+  - `embedding_model: str`
+  - `extra: dict`（来自 `extra_json`，可放自定义参数）
+
+实现 **必须** 接受 `config=None` 的形式（首次启动种子化时会用 `cls()` 探测默认值）。
+
+### 4.2 元信息
+
+| 方法 | 返回 | 说明 |
+| --- | --- | --- |
+| `name() -> str` | 与 `manifest.name` 一致 | 唯一标识 |
+| `label() -> str` | 中文名 | 用于界面显示 |
+| `available() -> bool` | bool | Python 依赖能 import 视为 True |
+| `configured() -> bool` | bool | 必填字段（`base_url` / `api_key` / `llm_model`）是否齐全 |
+
+### 4.3 配置读取
+
+| 方法 | 说明 |
+| --- | --- |
+| `base_url() -> str` | 一般从 `self._config.get("base_url")` 取，回退到默认 |
+| `api_key() -> str` | 同上 |
+| `llm_model() -> str` | 同上 |
+| `embedding_model() -> str` | 同上 |
+
+### 4.4 模型实例（核心）
+
+```python
+def get_llm(self) -> BaseChatModel: ...
+def get_embeddings(self) -> Embeddings: ...
+```
+
+返回 LangChain 协议的 `BaseChatModel` / `Embeddings` 实例，平台会用它们生成回答与索引向量。
+
+### 4.5 配置表单
+
+```python
+def config_fields(self) -> list[dict]: ...
+```
+
+返回前端「插件管理」页面要展示的表单字段，每项形如：
+
+```python
+{
+    "key": "base_url",          # 与 ProviderConfig 列名对应
+    "label": "Base URL",        # 中文标签
+    "value": self.base_url(),   # 当前值（敏感字段应做脱敏）
+    "required": True,
+    "type": "text"              # text | password
+}
+```
+
+`api_key` 字段建议：`type="password"`，`value` 仅返回脱敏前缀（如 `"sk-***"`）。
+
+---
+
+## 5. 最小 Provider 示例
+
+```python
+# my_plugin/provider.py
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
+
+
+class MyProvider:
+    def __init__(self, config: dict | None = None) -> None:
+        self._config = config or {}
+
+    def name(self) -> str:
+        return "my_provider"
+
+    def label(self) -> str:
+        return "My Provider"
+
+    def available(self) -> bool:
+        try:
+            import langchain_openai  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    def configured(self) -> bool:
+        return bool(self.base_url() and self.api_key() and self.llm_model())
+
+    def base_url(self) -> str:
+        return self._config.get("base_url") or "https://api.example.com/v1"
+
+    def api_key(self) -> str:
+        return self._config.get("api_key", "")
+
+    def llm_model(self) -> str:
+        return self._config.get("llm_model") or "gpt-4o-mini"
+
+    def embedding_model(self) -> str:
+        return self._config.get("embedding_model") or "text-embedding-3-small"
+
+    def get_llm(self) -> BaseChatModel:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=self.llm_model(),
+            base_url=self.base_url(),
+            api_key=self.api_key(),
+            temperature=0.3,
+        )
+
+    def get_embeddings(self) -> Embeddings:
+        from langchain_openai import OpenAIEmbeddings
+        return OpenAIEmbeddings(
+            model=self.embedding_model(),
+            base_url=self.base_url(),
+            api_key=self.api_key(),
+        )
+
+    def config_fields(self) -> list[dict]:
+        return [
+            {"key": "base_url", "label": "Base URL", "value": self.base_url(),
+             "required": True, "type": "text"},
+            {"key": "api_key", "label": "API Key",
+             "value": (self.api_key()[:3] + "***") if self.api_key() else "",
+             "required": True, "type": "password"},
+            {"key": "llm_model", "label": "LLM 模型", "value": self.llm_model(),
+             "required": True, "type": "text"},
+            {"key": "embedding_model", "label": "Embedding 模型",
+             "value": self.embedding_model(), "required": True, "type": "text"},
+        ]
+```
+
+如果厂商完全兼容 OpenAI 协议，更简短的写法是继承 `OpenAILikeProvider`，参考 `backend/app/providers/zhipu.py`。
+
+---
+
+## 6. 打包与发布
+
+```bash
+# 假设当前目录已经有 manifest.json / provider.py
+zip -r my_plugin-0.1.0.zip manifest.json provider.py README.md
+```
+
+或在 Windows 上右键 → 发送到 → 压缩 zip。
+
+将得到的 `*.zip`：
+
+- **方式 A：上传安装** — 管理界面「插件管理 → 上传插件」选择本地 zip。
+- **方式 B：URL 导入** — 把 zip 放到任何可被后端 HTTP/HTTPS 访问的位置（公司内网 / OSS / GitHub Release），在「插件管理 → URL 导入」粘贴下载链接。后端会下载（最大 32 MB）后走与上传相同的安装流水线。
+
+安装流程：
+
+1. 后端在 `data/plugins/<name>/` 解压（带 zip-slip 防护）。
+2. 校验 `manifest.json`，把插件目录加入 `sys.path` 并 `import` 入口模块。
+3. 在 `provider_configs` 写一行（`source=uploaded`，`category` 取自清单，默认 `"model"`）。
+4. 管理员填写配置 → 点击「安装」（标记 `installed=True`） → 「激活」（设为唯一 `is_active=True`）。
+
+> 卸载只对 `uploaded` 生效（删除文件 + 删除 DB 行）；`builtin` 插件只会被重置（清空 `api_key`、`installed`、`is_active`）。
+
+---
+
+## 7. 安全约束
+
+- 插件名（`name`）必须匹配 `^[a-zA-Z0-9_]{2,32}$`，禁止路径分隔符。
+- 解压时阻止 zip-slip，所有解出路径必须在目标目录内。
+- URL 导入仅允许 `http` / `https`，路径名必须以 `.zip` 结尾，包大小上限 32 MB，连接超时 30 s。
+- 不会自动执行 `pip install`：依赖必须由部署方在后端 Python 环境中提前装好，否则错误会通过 `provider_configs.error` 在 UI 中暴露。
+- 仅 `admin` 角色可访问 `/api/plugins/*`。
+
+---
+
+## 8. 调试技巧
+
+1. 后端启动后查看 `provider_configs.error` 列：`ModuleNotFoundError: No module named "..."` 多半是依赖缺失。
+2. 插件目录被加入 `sys.path` 后，**不要**再使用与平台同名的顶层包（比如 `app`、`schemas`），否则会冲突。
+3. 想验证 `get_llm()`：在前端「插件管理」激活后随便发一次会话；如果失败，后端日志能看到完整 traceback。
+4. 修改插件代码后需要**重启后端**或重新上传 zip 才会重新 import。
+
+---
+
+## 9. FAQ
+
+**Q：能否多个插件同时启用？**
+A：不能。当前一次只允许一个 `is_active=True`；KB 索引与对话都走这一个。
+
+**Q：可以在 `extra_json` 里放什么？**
+A：任何合法 JSON。Provider 类可以通过 `self._config["extra"]` 取到，常用于厂商专属参数（temperature 上限、自定义 header 等）。
+
+**Q：为什么内置插件不能被卸载？**
+A：内置代码与后端绑定发布，卸载它们无意义；只能 reset 配置。
+
+**Q：未来会有哪些 `category`？**
+A：当前仅 `"model"` 已规范化，其它分类（如向量库适配、文档解析器、对话工具）待业务沉淀后再拓展，届时本规范会出 v2。

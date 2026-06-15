@@ -8,8 +8,6 @@ from __future__ import annotations
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 
-from ..config import settings
-
 # 探测可选依赖
 try:
     from langchain_ollama import ChatOllama, OllamaEmbeddings
@@ -22,9 +20,12 @@ except ImportError:  # pragma: no cover - 环境依赖
 class OllamaProvider:
     """本地 Ollama，无需 API Key。"""
 
-    _base_url = "http://localhost:11434"
-    _llm_model = "qwen2.5"
-    _embedding_model = "nomic-embed-text"
+    _default_base_url = "http://localhost:11434"
+    _default_llm_model = "qwen2.5"
+    _default_embedding_model = "nomic-embed-text"
+
+    def __init__(self, config: dict | None = None) -> None:
+        self._config: dict = config or {}
 
     def name(self) -> str:
         return "ollama"
@@ -40,13 +41,16 @@ class OllamaProvider:
         return _OLLAMA_AVAILABLE
 
     def base_url(self) -> str:
-        return settings.llm_base_url or self._base_url
+        return self._config.get("base_url") or self._default_base_url
+
+    def api_key(self) -> str:
+        return ""  # ollama 不需要
 
     def llm_model(self) -> str:
-        return settings.llm_model or self._llm_model
+        return self._config.get("llm_model") or self._default_llm_model
 
     def embedding_model(self) -> str:
-        return settings.embedding_model or self._embedding_model
+        return self._config.get("embedding_model") or self._default_embedding_model
 
     def get_llm(self) -> BaseChatModel:
         if not _OLLAMA_AVAILABLE:
@@ -68,21 +72,24 @@ class OllamaProvider:
     def config_fields(self) -> list[dict]:
         return [
             {
-                "key": "llm_base_url",
+                "key": "base_url",
                 "label": "Ollama 地址",
                 "value": self.base_url(),
                 "required": True,
+                "type": "text",
             },
             {
                 "key": "llm_model",
                 "label": "LLM 模型",
                 "value": self.llm_model(),
                 "required": True,
+                "type": "text",
             },
             {
                 "key": "embedding_model",
                 "label": "Embedding 模型",
                 "value": self.embedding_model(),
                 "required": True,
+                "type": "text",
             },
         ]

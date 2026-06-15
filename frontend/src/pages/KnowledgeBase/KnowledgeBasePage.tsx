@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { KnowledgeBaseForm } from './KnowledgeBaseForm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +37,8 @@ export const KnowledgeBasePage: React.FC = () => {
   const createKnowledgeBase = useAppStore((s) => s.createKnowledgeBase);
   const updateKnowledgeBase = useAppStore((s) => s.updateKnowledgeBase);
   const deleteKnowledgeBase = useAppStore((s) => s.deleteKnowledgeBase);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const isAdmin = currentUser?.role === 'admin';
 
   // 进入页面拉取后端最新列表
   useEffect(() => {
@@ -204,6 +207,12 @@ export const KnowledgeBasePage: React.FC = () => {
                   </div>
                   <h3 className="text-sm font-medium text-text mt-3 truncate">{kb.name}</h3>
                   <p className="text-xs text-text-dim mt-1 line-clamp-2 h-8">{kb.description || '暂无描述'}</p>
+                  {isAdmin && kb.ownerUsername && (
+                    <div className="mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-3 border border-border text-2xs text-text-dim">
+                      <span className="text-text-mute">拥有者：</span>
+                      <span className="text-text">{kb.ownerUsername}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-border text-2xs text-text-mute">
                     <span>{kb.docCount ?? kb.files.length} 个文件</span>
                     <span>更新于 {kb.updatedAt}</span>

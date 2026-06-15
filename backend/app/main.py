@@ -7,15 +7,64 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, select
 
-from .database import init_db
-from .routers import chat, documents, knowledge_bases, providers
+from .config import settings
+from .database import SessionLocal, init_db
+from .models import User
+from .providers import (
+    load_uploaded_plugins,
+    sync_builtin_to_db,
+    sync_uploaded_to_db,
+)
+from .routers import (
+    auth,
+    chat,
+    documents,
+    knowledge_bases,
+    plugins,
+    providers,
+    users,
+)
+from .security import hash_password
+
+
+def seed_admin() -> None:
+    """首次启动时若 users 表为空，按配置创建初始管理员。"""
+    db = SessionLocal()
+    try:
+        count = db.scalar(select(func.count(User.id)))
+        if count:
+            return
+        admin = User(
+            username=settings.init_admin_username,
+            password_hash=hash_password(settings.init_admin_password),
+            role="admin",
+            status="active",
+        )
+        db.add(admin)
+        db.commit()
+    finally:
+        db.close()
+
+
+def seed_providers() -> None:
+    """启动时同步内置 provider + 扫描已上传插件，保证 DB 一致。"""
+    db = SessionLocal()
+    try:
+        sync_builtin_to_db(db)
+        results = load_uploaded_plugins()
+        sync_uploaded_to_db(db, results)
+    finally:
+        db.close()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动：建库建表
+    # 启动：建库建表 + 初始化管理员 + 同步插件
     init_db()
+    seed_admin()
+    seed_providers()
     yield
 
 
@@ -37,9 +86,12 @@ app.add_middleware(
 
 # 路由
 app.include_router(providers.router)
+app.include_router(plugins.router)
 app.include_router(knowledge_bases.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(auth.router)
+app.include_router(users.router)
 
 
 @app.get("/api/health", tags=["meta"])

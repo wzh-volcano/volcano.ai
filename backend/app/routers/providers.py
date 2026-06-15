@@ -1,17 +1,25 @@
-"""Provider 信息接口：供前端表单与状态展示。"""
-from fastapi import APIRouter
+"""Provider 信息接口（保持向后兼容）。
+
+注意：插件管理逻辑已迁移到 /api/plugins，本路由保留用于查询当前生效 provider。
+"""
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..config import settings
-from ..providers import available_providers, get_current, list_providers
+from ..database import get_db
+from ..providers import (
+    available_providers,
+    get_current,
+    list_providers,
+)
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
 @router.get("", response_model=list[schemas.ProviderInfo])
-def get_providers() -> list[schemas.ProviderInfo]:
-    """返回所有 provider，含可用性、配置完整性与当前选中状态。"""
-    current = get_current()
+def get_providers(db: Session = Depends(get_db)) -> list[schemas.ProviderInfo]:
+    """返回所有 provider 元信息（不含 DB 配置注入）。"""
+    current = get_current(db)
     current_name = current.name()
     available = {p.name() for p in available_providers()}
 
@@ -35,13 +43,13 @@ def get_providers() -> list[schemas.ProviderInfo]:
 
 
 @router.get("/current")
-def get_current_provider() -> dict:
+def get_current_provider(db: Session = Depends(get_db)) -> dict:
     """当前生效的 provider 摘要。"""
-    p = get_current()
+    p = get_current(db)
     return {
         "name": p.name(),
         "label": p.label(),
         "configured": p.configured(),
-        "llm_model": settings.llm_model,
-        "embedding_model": settings.embedding_model,
+        "llm_model": p.llm_model() if hasattr(p, "llm_model") else "",
+        "embedding_model": p.embedding_model() if hasattr(p, "embedding_model") else "",
     }

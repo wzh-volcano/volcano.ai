@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     default_chunk_overlap: int = 50
     default_top_k: int = 4
 
+    # Auth
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440  # 24h
+    init_admin_username: str = "admin"
+    init_admin_password: str = "admin123"
+
     @property
     def sqlite_url(self) -> str:
         return f"sqlite:///{self.sqlite_path}"

@@ -22,7 +22,7 @@ def index_document(
     texts = [c.page_content for c in chunks]
 
     # 3. 向量化 + 入库（用 KB 锁定的 provider/embedding_model）
-    provider = get_current()
+    provider = get_current(db)
     embeddings = provider.get_embeddings()
     count = store_chunks(db, kb_id=kb.id, doc_id=doc.id, texts=texts, embeddings_model=embeddings)
 

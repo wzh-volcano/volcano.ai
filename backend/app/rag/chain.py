@@ -35,7 +35,7 @@ def _build_context(chunks: list) -> str:
 def answer_question(
     db: Session, kb: KnowledgeBase, question: str, top_k: int | None = None
 ) -> dict:
-    provider = get_current()
+    provider = get_current(db)
     embeddings = provider.get_embeddings()
     llm = provider.get_llm()
 

@@ -57,4 +57,32 @@ export interface KnowledgeBase {
   chunkCount?: number;
   status?: string;
   embeddingModel?: string;
+  ownerId?: number;
+  ownerUsername?: string;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  role: 'admin' | 'user';
+  status: 'active' | 'disabled';
+  createdAt: string;
+}
+
+export interface Plugin {
+  id: number;
+  name: string;
+  label: string;
+  category: string; // model | other
+  source: 'builtin' | 'uploaded';
+  modulePath: string;
+  installed: boolean;
+  isActive: boolean;
+  baseUrl: string;
+  apiKeySet: boolean;
+  llmModel: string;
+  embeddingModel: string;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

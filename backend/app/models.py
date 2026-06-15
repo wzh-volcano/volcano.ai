@@ -33,11 +33,15 @@ class KnowledgeBase(Base):
     doc_count: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="ready")  # ready | indexing | error
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     documents: Mapped[list["Document"]] = relationship(
         back_populates="kb", cascade="all, delete-orphan"
     )
+    owner: Mapped["User"] = relationship(back_populates="knowledge_bases")
 
 
 class Document(Base):
@@ -70,3 +74,44 @@ class Chunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), default="user")  # admin | user
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | disabled
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+
+
+class ProviderConfig(Base):
+    """模型厂商插件配置（每个 provider 在数据库里一行）。"""
+
+    __tablename__ = "provider_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(128), default="")
+    category: Mapped[str] = mapped_column(String(32), default="model", index=True)
+    # 已知值：model（模型厂商，目前唯一已规范化的类别） / other（其它）
+    source: Mapped[str] = mapped_column(String(16), default="builtin")  # builtin | uploaded
+    module_path: Mapped[str] = mapped_column(String(256), default="")  # 形如 "pkg.mod:ClassName"
+    installed: Mapped[bool] = mapped_column(default=False)
+    is_active: Mapped[bool] = mapped_column(default=False)
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    api_key: Mapped[str] = mapped_column(String(512), default="")
+    llm_model: Mapped[str] = mapped_column(String(128), default="")
+    embedding_model: Mapped[str] = mapped_column(String(128), default="")
+    extra_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )

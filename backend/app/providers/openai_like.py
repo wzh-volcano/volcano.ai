@@ -3,6 +3,8 @@
 兼容 OpenAI 官方、DeepSeek、Moonshot、智谱、自建代理等任何
 遵循 OpenAI Chat / Embeddings 协议的端点——只需配置
 base_url / api_key / model。
+
+构造时可注入运行时配置（ProviderConfig 行），缺省时回退到 .env。
 """
 from __future__ import annotations
 
@@ -24,12 +26,15 @@ class OpenAILikeProvider:
         name: str | None = None,
         label: str | None = None,
         base_url: str | None = None,
+        config: dict | None = None,
     ) -> None:
         if name:
             self._name = name
         if label:
             self._label = label
         self._base_url = base_url or self._default_base_url
+        # 来自 ProviderConfig 行的运行时配置
+        self._config: dict = config or {}
 
     # ---- 元信息 ----
     def name(self) -> str:
@@ -45,18 +50,22 @@ class OpenAILikeProvider:
     def configured(self) -> bool:
         return bool(self.base_url() and self.api_key() and self.llm_model())
 
-    # ---- 配置读取（子类可覆盖）----
+    # ---- 配置读取（优先 DB，回退到 settings/默认值）----
     def base_url(self) -> str:
-        return settings.llm_base_url or self._base_url
+        return (
+            self._config.get("base_url")
+            or settings.llm_base_url
+            or self._base_url
+        )
 
     def api_key(self) -> str:
-        return settings.llm_api_key
+        return self._config.get("api_key") or settings.llm_api_key
 
     def llm_model(self) -> str:
-        return settings.llm_model
+        return self._config.get("llm_model") or settings.llm_model
 
     def embedding_model(self) -> str:
-        return settings.embedding_model
+        return self._config.get("embedding_model") or settings.embedding_model
 
     # ---- 实例 ----
     def get_llm(self) -> BaseChatModel:
@@ -78,31 +87,35 @@ class OpenAILikeProvider:
             api_key=self.api_key(),
         )
 
-    # ---- 配置字段（供 /api/providers 展示与前端表单）----
+    # ---- 配置字段（供 /api/plugins 展示与前端表单）----
     def config_fields(self) -> list[dict]:
         return [
             {
-                "key": "llm_base_url",
+                "key": "base_url",
                 "label": "Base URL",
                 "value": self.base_url(),
                 "required": True,
+                "type": "text",
             },
             {
-                "key": "llm_api_key",
+                "key": "api_key",
                 "label": "API Key",
                 "value": (self.api_key()[:3] + "***") if self.api_key() else "",
                 "required": True,
+                "type": "password",
             },
             {
                 "key": "llm_model",
                 "label": "LLM 模型",
                 "value": self.llm_model(),
                 "required": True,
+                "type": "text",
             },
             {
                 "key": "embedding_model",
                 "label": "Embedding 模型",
                 "value": self.embedding_model(),
                 "required": True,
+                "type": "text",
             },
         ]

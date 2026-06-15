@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..config import settings
 from ..database import get_db
-from ..models import Document, KnowledgeBase
+from ..deps import get_current_user
+from ..models import Document, KnowledgeBase, User
 from ..services.kb_service import index_document
+from .knowledge_bases import get_kb_or_403
 
 router = APIRouter(tags=["documents"])
 
@@ -40,10 +42,9 @@ async def upload_documents(
     kb_id: int,
     files: list[UploadFile],
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> list[Document]:
-    kb = db.get(KnowledgeBase, kb_id)
-    if kb is None:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+    kb = get_kb_or_403(kb_id, db, current_user)
 
     saved: list[Document] = []
     for f in files:
@@ -85,10 +86,12 @@ async def upload_documents(
 
 
 @router.get("/api/kb/{kb_id}/documents", response_model=list[schemas.DocumentOut])
-def list_documents(kb_id: int, db: Session = Depends(get_db)) -> list[Document]:
-    kb = db.get(KnowledgeBase, kb_id)
-    if kb is None:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+def list_documents(
+    kb_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[Document]:
+    get_kb_or_403(kb_id, db, current_user)
     return list(
         db.scalars(
             select(Document).where(Document.kb_id == kb_id).order_by(Document.created_at.desc())
@@ -97,16 +100,24 @@ def list_documents(kb_id: int, db: Session = Depends(get_db)) -> list[Document]:
 
 
 @router.delete("/api/documents/{doc_id}", status_code=204)
-def delete_document(doc_id: int, db: Session = Depends(get_db)) -> None:
+def delete_document(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
     doc = db.get(Document, doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")
 
     kb = db.get(KnowledgeBase, doc.kb_id)
+    if kb is None:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    if current_user.role != "admin" and kb.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
     db.delete(doc)  # chunks 因 cascade 一并删除
     db.commit()
 
     # 同步知识库计数
-    if kb is not None:
-        kb.doc_count = max(0, kb.doc_count - 1)
-        db.commit()
+    kb.doc_count = max(0, kb.doc_count - 1)
+    db.commit()
