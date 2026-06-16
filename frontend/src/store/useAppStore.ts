@@ -40,7 +40,7 @@ const now = () => new Date().toLocaleString('zh-CN');
 export const useAppStore = create<AppState>((set) => ({
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  rightbarOpen: true,
+  rightbarOpen: false,
   toggleRightbar: () => set((state) => ({ rightbarOpen: !state.rightbarOpen })),
   taskGroups: [
     {

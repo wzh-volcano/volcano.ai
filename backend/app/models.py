@@ -150,7 +150,6 @@ class ProviderConfig(Base):
     is_embedding_active: Mapped[bool] = mapped_column(default=False)
     base_url: Mapped[str] = mapped_column(String(512), default="")
     api_key: Mapped[str] = mapped_column(String(512), default="")
-    llm_model: Mapped[str] = mapped_column(String(128), default="")
     embedding_model: Mapped[str] = mapped_column(String(128), default="")
     extra_json: Mapped[str] = mapped_column(Text, default="{}")
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

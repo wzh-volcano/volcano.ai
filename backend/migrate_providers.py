@@ -27,7 +27,6 @@ if not exists:
             is_active BOOLEAN DEFAULT 0,
             base_url VARCHAR(512) DEFAULT '',
             api_key VARCHAR(512) DEFAULT '',
-            llm_model VARCHAR(128) DEFAULT '',
             embedding_model VARCHAR(128) DEFAULT '',
             extra_json TEXT DEFAULT '{}',
             error TEXT,

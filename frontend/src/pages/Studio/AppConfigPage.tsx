@@ -22,6 +22,8 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 
@@ -53,10 +55,14 @@ export const AppConfigPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Provider/Model dropdown data
-  const [activeProviders, setActiveProviders] = useState<{ provider_name: string; label: string; models: string[] }[]>([]);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [activeProviders, setActiveProviders] = useState<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]>([]);
+  const [availableModels, setAvailableModels] = useState<{ name: string; context: number }[]>([]);
+
+  const activeModel = availableModels.find((m) => m.name === model);
+  const maxTokens = activeModel?.context ?? 128000;
 
   // Skills & KBs
   const [availableSkills, setAvailableSkills] = useState<{ id: number; name: string }[]>([]);
@@ -97,7 +103,7 @@ export const AppConfigPage: React.FC = () => {
   useEffect(() => {
     const p = activeProviders.find((p) => p.provider_name === provider);
     setAvailableModels(p?.models || []);
-    if (p && !p.models.includes(model)) {
+    if (p && !p.models.some((m) => m.name === model)) {
       setModel('');
     }
   }, [provider, activeProviders, model]);
@@ -182,6 +188,10 @@ export const AppConfigPage: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setShowPreview(!showPreview)}>
+            {showPreview ? <EyeOff size={13} /> : <Eye size={13} />}
+            {showPreview ? '隐藏预览' : '预览'}
+          </Button>
           {saveSuccess && (
             <span className="flex items-center gap-1 text-xs text-success">
               <CheckCircle2 size={13} />
@@ -213,8 +223,8 @@ export const AppConfigPage: React.FC = () => {
       {/* Body: Left config + Right preview */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="max-w-[640px] space-y-6">
+        <div className="w-[640px] overflow-y-auto px-6 py-5 shrink-0">
+          <div className="space-y-6">
             {/* Basic Info */}
             <div>
               <h3 className="text-sm font-medium text-text mb-3">基本信息</h3>
@@ -270,7 +280,7 @@ export const AppConfigPage: React.FC = () => {
                   >
                     <option value="">-- 选择模型 --</option>
                     {availableModels.map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={m.name} value={m.name}>{m.name}</option>
                     ))}
                   </select>
                 </div>
@@ -354,9 +364,11 @@ export const AppConfigPage: React.FC = () => {
         </div>
 
         {/* Right panel */}
-        <div className="w-[400px] border-l border-border flex flex-col shrink-0">
-          <StudioChatPreview appId={app.id} config={{ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds }} />
-        </div>
+        {showPreview && (
+          <div className="flex-1 border-l border-border flex flex-col min-w-0 animate-in slide-in-from-right">
+            <StudioChatPreview appId={app.id} config={{ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds, maxTokens }} />
+          </div>
+        )}
       </div>
 
       {/* Delete dialog */}

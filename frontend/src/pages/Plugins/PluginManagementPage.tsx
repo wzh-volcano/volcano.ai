@@ -34,21 +34,24 @@ import {
   Package,
   PackageCheck,
   RefreshCw,
+  FileJson,
+  Plus,
+  X,
 } from 'lucide-react';
 import type { Plugin } from '@/types';
 
 interface ConfigFormState {
   base_url: string;
   api_key: string;
-  llm_model: string;
   embedding_model: string;
+  configured_models: { name: string; context: number }[];
 }
 
 const EMPTY_FORM: ConfigFormState = {
   base_url: '',
   api_key: '',
-  llm_model: '',
   embedding_model: '',
+  configured_models: [],
 };
 
 type CategoryFilter = 'all' | 'model' | 'other';
@@ -82,6 +85,10 @@ export const PluginManagementPage: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
+
+  const [manualModelName, setManualModelName] = useState('');
+  const [manualModelContext, setManualModelContext] = useState('');
 
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
@@ -135,13 +142,25 @@ export const PluginManagementPage: React.FC = () => {
 
   // ---------- 配置 ----------
   const openConfig = (p: Plugin) => {
+    let configured: { name: string; context: number }[] = [];
+    const extraJson = (p as any).extraJson;
+    if (extraJson) {
+      try {
+        const parsed = JSON.parse(extraJson);
+        if (parsed.configured_models) {
+          configured = parsed.configured_models;
+        }
+      } catch { /* ignore */ }
+    }
     setConfigTarget(p);
     setConfigForm({
       base_url: p.baseUrl,
       api_key: '',
-      llm_model: p.llmModel,
       embedding_model: p.embeddingModel,
+      configured_models: configured,
     });
+    setManualModelName('');
+    setManualModelContext('');
     // 重置模型列表相关状态
     setModelsList([]);
     setModelsError(null);
@@ -154,33 +173,116 @@ export const PluginManagementPage: React.FC = () => {
     setModelsError(null);
     setModelsInfo(null);
     try {
-      // 表单当前值优先；api_key 留空时后端回退到 DB 已存值
       const models = await api.fetchPluginModels(configTarget.name, {
         base_url: configForm.base_url || undefined,
         api_key: configForm.api_key || undefined,
       });
       setModelsList(models);
       if (models.length === 0) {
-        setModelsInfo('该厂商未返回任何模型，请手动填写');
+        setModelsInfo('该厂商未返回任何模型，请手动添加');
       } else {
-        setModelsInfo(`已获取 ${models.length} 个模型，可在下方下拉选择`);
+        setModelsInfo(`已获取 ${models.length} 个模型，点击勾选以添加`);
       }
     } catch (e) {
-      setModelsError(e instanceof Error ? e.message : '拉取失败');
+      setModelsError(e instanceof Error ? e.message : '拉取失败，可手动添加模型');
     } finally {
       setModelsLoading(false);
     }
+  };
+
+  const handleToggleModel = (modelName: string) => {
+    setConfigForm((prev) => {
+      const exists = prev.configured_models.find((m) => m.name === modelName);
+      const updated = exists
+        ? prev.configured_models.filter((m) => m.name !== modelName)
+        : [...prev.configured_models, { name: modelName, context: 262144 }];
+      return { ...prev, configured_models: updated };
+    });
+  };
+
+  const handleContextChange = (modelName: string, context: number) => {
+    setConfigForm((prev) => ({
+      ...prev,
+      configured_models: prev.configured_models.map((m) =>
+        m.name === modelName ? { ...m, context } : m
+      ),
+    }));
+  };
+
+  const handleAddManualModel = () => {
+    const name = manualModelName.trim();
+    if (!name) return;
+    setConfigForm((prev) => {
+      if (prev.configured_models.find((m) => m.name === name)) return prev;
+      return {
+        ...prev,
+        configured_models: [
+          ...prev.configured_models,
+          { name, context: Number(manualModelContext) || 262144 },
+        ],
+      };
+    });
+    setManualModelName('');
+    setManualModelContext('');
+  };
+
+  const handleRemoveModel = (modelName: string) => {
+    setConfigForm((prev) => ({
+      ...prev,
+      configured_models: prev.configured_models.filter((m) => m.name !== modelName),
+    }));
+  };
+
+  const handleImportJson = () => {
+    jsonInputRef.current?.click();
+  };
+
+  const handleJsonFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        const models = Array.isArray(data) ? data : data.models || data.configured_models || [];
+        const parsed = models
+          .filter((m: any) => m.name)
+          .map((m: any) => ({ name: m.name, context: m.context || 262144 }));
+        if (parsed.length === 0) {
+          setModelsError('JSON 中未找到有效的模型配置');
+          return;
+        }
+        setConfigForm((prev) => {
+          const merged = [...prev.configured_models];
+          for (const m of parsed) {
+            if (!merged.find((x) => x.name === m.name)) {
+              merged.push(m);
+            }
+          }
+          return { ...prev, configured_models: merged };
+        });
+        setModelsInfo(`已导入 ${parsed.length} 个模型`);
+      } catch {
+        setModelsError('JSON 解析失败，请检查格式');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const submitConfig = async () => {
     if (!configTarget) return;
     setSubmitting(true);
     try {
+      const extra: any = {};
+      if (configForm.configured_models.length > 0) {
+        extra.configured_models = configForm.configured_models;
+      }
       await api.updatePlugin(configTarget.name, {
         base_url: configForm.base_url,
         api_key: configForm.api_key || undefined,
-        llm_model: configForm.llm_model,
         embedding_model: configForm.embedding_model,
+        extra_json: Object.keys(extra).length > 0 ? JSON.stringify(extra) : undefined,
       });
       await loadPlugins();
       flash('配置已保存');
@@ -203,23 +305,20 @@ export const PluginManagementPage: React.FC = () => {
     }
   };
 
-  const handleActivate = async (p: Plugin) => {
+  const handleToggleActive = async (p: Plugin, isLlm: boolean) => {
     try {
-      await api.activatePlugin(p.name);
+      await api.updatePlugin(p.name, {
+        is_active: isLlm ? !p.isActive : undefined,
+        is_embedding_active: !isLlm ? !p.isEmbeddingActive : undefined,
+      });
       await loadPlugins();
-      flash(`${p.label} 已设为当前生效厂商`);
+      if (isLlm) {
+        flash(p.isActive ? `已关闭 ${p.label} LLM` : `已开启 ${p.label} LLM`);
+      } else {
+        flash(p.isEmbeddingActive ? `已关闭 ${p.label} Embedding` : `已开启 ${p.label} Embedding`);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '激活失败');
-    }
-  };
-
-  const handleActivateEmbedding = async (p: Plugin) => {
-    try {
-      await api.activatePluginEmbedding(p.name);
-      await loadPlugins();
-      flash(`${p.label} 已设为当前 Embedding 厂商`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '激活失败');
+      setError(e instanceof Error ? e.message : '操作失败');
     }
   };
 
@@ -478,35 +577,36 @@ export const PluginManagementPage: React.FC = () => {
                           )}
                           <div className="flex items-center gap-2">
                             {p.apiKeySet && <span className="text-success">key ✓</span>}
-                            {p.llmModel && <span className="text-text-mute">{p.llmModel}</span>}
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {!p.isActive && p.installed && !p.error && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => handleActivate(p)}
-                              title="设为当前 LLM"
-                            >
-                              <Power size={12} />
-                              LLM
-                            </Button>
-                          )}
-                          {!p.isEmbeddingActive && p.installed && !p.error && p.embeddingModel && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-xs gap-1"
-                              onClick={() => handleActivateEmbedding(p)}
-                              title="设为当前 Embedding"
-                            >
-                              <Power size={12} />
-                              Embed
-                            </Button>
+                          {p.installed && !p.error && (
+                            <>
+                              <button
+                                className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
+                                  p.isActive
+                                    ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                                    : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
+                                }`}
+                                onClick={() => handleToggleActive(p, true)}
+                                title={p.isActive ? '关闭 LLM' : '开启 LLM'}
+                              >
+                                LLM
+                              </button>
+                              <button
+                                className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
+                                  p.isEmbeddingActive
+                                    ? 'bg-info/15 text-info hover:bg-info/25'
+                                    : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
+                                }`}
+                                onClick={() => handleToggleActive(p, false)}
+                                title={p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
+                              >
+                                E
+                              </button>
+                            </>
                           )}
                           {!p.installed && !p.error && (
                             <Button
@@ -530,16 +630,16 @@ export const PluginManagementPage: React.FC = () => {
                                 <Settings size={14} />
                                 配置
                               </DropdownMenuItem>
-                              {!p.isActive && p.installed && !p.error && (
-                                <DropdownMenuItem onClick={() => handleActivate(p)}>
+                              {p.installed && !p.error && (
+                                <DropdownMenuItem onClick={() => handleToggleActive(p, true)}>
                                   <Power size={14} />
-                                  设为当前 LLM
+                                  {p.isActive ? '关闭 LLM' : '开启 LLM'}
                                 </DropdownMenuItem>
                               )}
-                              {!p.isEmbeddingActive && p.installed && !p.error && p.embeddingModel && (
-                                <DropdownMenuItem onClick={() => handleActivateEmbedding(p)}>
+                              {p.installed && !p.error && (
+                                <DropdownMenuItem onClick={() => handleToggleActive(p, false)}>
                                   <Power size={14} />
-                                  设为当前 Embedding
+                                  {p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />
@@ -606,24 +706,44 @@ export const PluginManagementPage: React.FC = () => {
             </div>
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-2xs text-text-mute">模型选择</span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-2xs gap-1"
-                  onClick={handleFetchModels}
-                  disabled={modelsLoading || !configForm.base_url}
-                  title={!configForm.base_url ? '请先填写 Base URL' : '从厂商拉取可用模型'}
-                >
-                  {modelsLoading ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <RefreshCw size={12} />
-                  )}
-                  拉取模型列表
-                </Button>
+                <span className="text-xs font-medium text-text">模型配置</span>
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-2xs gap-1"
+                    onClick={handleFetchModels}
+                    disabled={modelsLoading || !configForm.base_url}
+                    title={!configForm.base_url ? '请先填写 Base URL' : '从厂商拉取可用模型'}
+                  >
+                    {modelsLoading ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={12} />
+                    )}
+                    拉取
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-2xs gap-1"
+                    onClick={handleImportJson}
+                  >
+                    <FileJson size={12} />
+                    JSON
+                  </Button>
+                  <input
+                    ref={jsonInputRef}
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={handleJsonFileChange}
+                  />
+                </div>
               </div>
+
               {/* 拉取结果提示 */}
               {modelsInfo && (
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-success/10 text-success text-2xs">
@@ -649,30 +769,85 @@ export const PluginManagementPage: React.FC = () => {
                   </button>
                 </div>
               )}
-              {/* datalist：两个输入框共用一份候选；仍可手动输入 */}
-              <datalist id="cfg-model-options">
-                {modelsList.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="cfg-llm">LLM 模型</Label>
-                  <Input
-                    id="cfg-llm"
-                    list="cfg-model-options"
-                    value={configForm.llm_model}
-                    onChange={(e) =>
-                      setConfigForm({ ...configForm, llm_model: e.target.value })
-                    }
-                    placeholder="gpt-4o-mini"
-                  />
+
+              {/* 已拉取的模型列表（多选 + 上下文） */}
+              {modelsList.length > 0 && (
+                <div className="max-h-40 overflow-y-auto border border-border rounded-lg p-2 space-y-1.5">
+                  {modelsList.map((m) => {
+                    const checked = configForm.configured_models.find((cm) => cm.name === m);
+                    return (
+                      <div key={m} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={!!checked}
+                          onChange={() => handleToggleModel(m)}
+                          className="rounded border-border shrink-0"
+                        />
+                        <span className="text-xs text-text flex-1 truncate">{m}</span>
+                        {checked && (
+                          <input
+                            type="number"
+                            value={checked.context}
+                            onChange={(e) => handleContextChange(m, Number(e.target.value) || 262144)}
+                            className="w-20 h-6 rounded border border-border bg-bg-2 px-1.5 text-2xs text-text text-right outline-none"
+                            placeholder="上下文"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+              )}
+
+              {/* 手动添加 */}
+              {(!modelsList.length || modelsError) && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={manualModelName}
+                    onChange={(e) => setManualModelName(e.target.value)}
+                    placeholder="模型名称"
+                    className="h-7 text-xs flex-1"
+                  />
+                  <Input
+                    type="number"
+                    value={manualModelContext}
+                    onChange={(e) => setManualModelContext(e.target.value)}
+                    placeholder="上下文"
+                    className="h-7 text-xs w-20"
+                  />
+                  <button
+                    className="w-7 h-7 flex items-center justify-center rounded bg-accent text-white hover:bg-accent/80 disabled:opacity-40 shrink-0"
+                    onClick={handleAddManualModel}
+                    disabled={!manualModelName.trim()}
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+              )}
+
+              {/* 已配置的模型列表 */}
+              {configForm.configured_models.length > 0 && (
+                <div className="border border-border rounded-lg divide-y divide-border">
+                  {configForm.configured_models.map((m) => (
+                    <div key={m.name} className="flex items-center gap-2 px-2.5 py-1.5">
+                      <span className="text-xs text-text flex-1 truncate">{m.name}</span>
+                      <span className="text-2xs text-text-mute shrink-0">{m.context.toLocaleString()}</span>
+                      <button
+                        className="w-5 h-5 flex items-center justify-center rounded text-text-mute hover:text-error hover:bg-error/10 transition-colors shrink-0"
+                        onClick={() => handleRemoveModel(m.name)}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div>
                 <div className="grid gap-2">
                   <Label htmlFor="cfg-emb">Embedding 模型</Label>
                   <Input
                     id="cfg-emb"
-                    list="cfg-model-options"
                     value={configForm.embedding_model}
                     onChange={(e) =>
                       setConfigForm({ ...configForm, embedding_model: e.target.value })

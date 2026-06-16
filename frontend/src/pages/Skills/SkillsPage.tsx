@@ -25,7 +25,10 @@ import {
   AlertCircle,
   User,
   Calendar,
+  Eye,
+  FileDown,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import type { Skill } from '@/types';
 
 export const SkillsPage: React.FC = () => {
@@ -43,7 +46,18 @@ export const SkillsPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [query, setQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  const [previewSkill, setPreviewSkill] = useState<Skill | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportMd = (skill: Skill) => {
+    const blob = new Blob([skill.content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${skill.name}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     loadSkills();
@@ -187,22 +201,38 @@ export const SkillsPage: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    {canEdit(skill.ownerId) && (
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openEdit(skill); }}
-                          className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-active transition-colors"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(skill.id); }}
-                          className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-error hover:bg-error/10 transition-colors"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPreviewSkill(skill); }}
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-active transition-colors"
+                        title="预览"
+                      >
+                        <Eye size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExportMd(skill); }}
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-active transition-colors"
+                        title="导出为 .md"
+                      >
+                        <FileDown size={13} />
+                      </button>
+                      {canEdit(skill.ownerId) && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEdit(skill); }}
+                            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-active transition-colors"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(skill.id); }}
+                            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-error hover:bg-error/10 transition-colors"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs text-text-dim mt-3 line-clamp-4 h-12 whitespace-pre-wrap break-words">
                     {skill.content.slice(0, 200)}{skill.content.length > 200 ? '...' : ''}
@@ -328,6 +358,34 @@ export const SkillsPage: React.FC = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 预览弹窗 */}
+      <Dialog open={!!previewSkill} onOpenChange={(open) => !open && setPreviewSkill(null)}>
+        <DialogContent className="sm:max-w-[700px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{previewSkill?.name}</DialogTitle>
+              {previewSkill && (
+                <button
+                  onClick={() => handleExportMd(previewSkill)}
+                  className="ml-auto w-7 h-7 inline-flex items-center justify-center rounded-md text-text-dim hover:text-text hover:bg-bg-active transition-colors"
+                  title="导出为 .md"
+                >
+                  <FileDown size={14} />
+                </button>
+              )}
+            </div>
+            {previewSkill?.description && (
+              <p className="text-xs text-text-dim mt-1">{previewSkill.description}</p>
+            )}
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 px-1 py-2 text-sm text-text leading-relaxed prose prose-sm max-w-none">
+            <ReactMarkdown>
+              {previewSkill?.content ?? ''}
+            </ReactMarkdown>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -148,7 +148,6 @@ def sync_builtin_to_db(db: Session) -> None:
                 is_active=False,
                 base_url=getattr(inst, "base_url", lambda: "")() if inst else "",
                 api_key="",
-                llm_model=getattr(inst, "llm_model", lambda: "")() if inst else "",
                 embedding_model=getattr(inst, "embedding_model", lambda: "")()
                 if inst
                 else "",
@@ -229,13 +228,11 @@ def get_provider(db: Session, name: str | None = None) -> _ProviderProto:
         row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
 
     if row is None:
-        # 兜底：用 .env 配置一个 OpenAILikeProvider
         return OpenAILikeProvider()
 
     config = {
         "base_url": row.base_url,
         "api_key": row.api_key,
-        "llm_model": row.llm_model,
         "embedding_model": row.embedding_model,
     }
     try:
@@ -255,7 +252,6 @@ def _instantiate_from_row(row) -> _ProviderProto:
     config = {
         "base_url": row.base_url,
         "api_key": row.api_key,
-        "llm_model": row.llm_model,
         "embedding_model": row.embedding_model,
     }
     try:
@@ -294,7 +290,11 @@ def get_current_legacy() -> _ProviderProto:
 
 
 def list_active_models(db: Session) -> list[dict]:
-    """返回所有已安装已激活的 provider 及其可用模型列表。"""
+    """返回所有已安装已激活的 provider 及其可用模型列表。
+
+    优先使用 extra_json 中配置的模型列表（管理员手动选择），
+    其次尝试通过 provider.list_models() 拉取，最后回退到 llm_model。
+    """
     from ..models import ProviderConfig
 
     rows = db.scalars(
@@ -307,19 +307,33 @@ def list_active_models(db: Session) -> list[dict]:
 
     result: list[dict] = []
     for row in rows:
-        models: list[str] = []
+        model_list: list[dict] = []
+
+        extra = {}
         try:
-            provider = _instantiate_from_row(row)
-            if hasattr(provider, "list_models"):
-                models = provider.list_models()
-        except Exception:
+            extra = json.loads(row.extra_json or "{}")
+        except json.JSONDecodeError:
             pass
-        if not models and row.llm_model:
-            models = [row.llm_model]
+
+        configured = extra.get("configured_models")
+        if configured and isinstance(configured, list):
+            for m in configured:
+                if isinstance(m, dict) and "name" in m:
+                    model_list.append({"name": m["name"], "context": m.get("context", 262144)})
+
+        if not model_list:
+            try:
+                provider = _instantiate_from_row(row)
+                if hasattr(provider, "list_models"):
+                    raw = provider.list_models()
+                    model_list = [{"name": name, "context": 262144} for name in raw]
+            except Exception:
+                pass
+
         result.append({
             "provider_name": row.name,
             "label": row.label,
-            "models": models,
+            "models": model_list,
         })
     return result
 

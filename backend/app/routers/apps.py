@@ -10,10 +10,10 @@ from .. import schemas
 from ..database import get_db
 from ..deps import get_current_user
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
 from ..models import App, KnowledgeBase, Skill, User
-from ..providers import get_current, get_provider
+from ..providers import get_current, get_current_embedding, get_provider
 from ..rag import vectorstore
 
 router = APIRouter(prefix="/api/apps", tags=["apps"])
@@ -164,14 +164,18 @@ def chat_with_app(
         if kb is None or (current_user.role != "admin" and kb.owner_id != current_user.id):
             continue
         try:
+            embeddings = get_current_embedding(db).get_embeddings()
             retrieved = vectorstore.search(
-                db, kb_id=kb.id, query=payload.question, top_k=3,
+                db, kb_id=kb.id, query=payload.question,
+                embeddings_model=embeddings, top_k=3,
                 chunk_method=kb.chunk_method or "general_auto",
             )
             for chunk, score in retrieved:
                 context_parts.append(f"[{chunk.document.filename if chunk.document else ''}] {chunk.content}")
-        except Exception:
-            pass
+        except Exception as e:
+            # 检索失败不应阻断对话，打印日志但继续
+            import traceback
+            traceback.print_exc()
 
     full_prompt = system_prompt
     if context_parts:
@@ -192,10 +196,22 @@ def chat_with_app(
         provider = get_current(db)  # fallback 全局
 
     llm = provider.get_llm()
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "{system}"),
-        ("human", "{question}"),
-    ])
+
+    # 构建消息列表（支持历史上下文）
+    chat_messages = [("system", "{system}")]
+    if payload.messages:
+        for m in payload.messages:
+            role = "human" if m.role == "user" else "ai"
+            chat_messages.append((role, m["content"] if isinstance(m, dict) else m.content))
+    if payload.question:
+        chat_messages.append(("human", "{question}"))
+
+    prompt = ChatPromptTemplate.from_messages(chat_messages)
+
+    # 构造输入参数
+    input_vars = {"system": full_prompt}
+    if payload.question:
+        input_vars["question"] = payload.question
 
     # 检查是否流式
     stream = payload.stream
@@ -204,7 +220,7 @@ def chat_with_app(
         async def event_stream():
             chain = prompt | llm | StrOutputParser()
             try:
-                async for chunk in chain.astream_events({"system": full_prompt, "question": payload.question}, version="v1"):
+                async for chunk in chain.astream_events(input_vars, version="v1"):
                     if chunk["event"] == "on_parser_stream":
                         token = chunk["data"]["chunk"]
                         yield f"data: {json.dumps({'token': token})}\n\n"
@@ -216,7 +232,40 @@ def chat_with_app(
     else:
         chain = prompt | llm | StrOutputParser()
         try:
-            answer = chain.invoke({"system": full_prompt, "question": payload.question})
+            answer = chain.invoke(input_vars)
             return {"answer": answer}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"调用模型失败：{str(e)}")
+
+
+@router.post("/{app_id}/compress")
+def compress_conversation(
+    app_id: int,
+    payload: schemas.AppCompressRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """用应用的 LLM 压缩对话历史为摘要。"""
+    app = get_app_or_404(app_id, db, current_user)
+    config = json.loads(app.config_json or "{}")
+
+    provider_name = config.get("provider", "")
+    if provider_name:
+        provider = get_provider(db, provider_name)
+    else:
+        provider = get_current(db)
+
+    llm = provider.get_llm()
+
+    conversation_text = ""
+    for m in payload.messages:
+        role = "用户" if m.role == "user" else "助手"
+        conversation_text += f"{role}: {m.content}\n\n"
+
+    prompt = PromptTemplate.from_template(
+        "请将以下对话压缩为简洁的中文摘要，保留所有关键信息和上下文关系。\n\n对话：\n{conversation}\n\n压缩摘要："
+    )
+    chain = prompt | llm | StrOutputParser()
+    summary = chain.invoke({"conversation": conversation_text})
+
+    return {"summary": summary}

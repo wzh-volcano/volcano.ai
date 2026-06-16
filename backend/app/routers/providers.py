@@ -50,6 +50,5 @@ def get_current_provider(db: Session = Depends(get_db)) -> dict:
         "name": p.name(),
         "label": p.label(),
         "configured": p.configured(),
-        "llm_model": p.llm_model() if hasattr(p, "llm_model") else "",
         "embedding_model": p.embedding_model() if hasattr(p, "embedding_model") else "",
     }

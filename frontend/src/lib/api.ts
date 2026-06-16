@@ -107,8 +107,8 @@ export interface PluginOut {
   is_embedding_active: boolean;
   base_url: string;
   api_key_set: boolean;
-  llm_model: string;
   embedding_model: string;
+  extra_json: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -241,8 +241,8 @@ function mapPlugin(p: PluginOut): Plugin {
     isEmbeddingActive: !!p.is_embedding_active,
     baseUrl: p.base_url,
     apiKeySet: p.api_key_set,
-    llmModel: p.llm_model,
     embeddingModel: p.embedding_model,
+    extraJson: p.extra_json || null,
     error: p.error,
     createdAt: formatDate(p.created_at),
     updatedAt: formatDate(p.updated_at),
@@ -570,8 +570,9 @@ export const api = {
       category?: string;
       base_url?: string;
       api_key?: string;
-      llm_model?: string;
       embedding_model?: string;
+      is_active?: boolean;
+      is_embedding_active?: boolean;
       extra_json?: string;
     },
   ): Promise<Plugin> => {
@@ -721,7 +722,7 @@ export const api = {
   },
 
   /** 获取已安装已激活 provider 的模型列表 */
-  fetchActiveModels: async (): Promise<{ provider_name: string; label: string; models: string[] }[]> => {
-    return request<{ provider_name: string; label: string; models: string[] }[]>('/api/plugins/active-models');
+  fetchActiveModels: async (): Promise<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]> => {
+    return request<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]>('/api/plugins/active-models');
   },
 };

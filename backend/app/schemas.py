@@ -193,8 +193,8 @@ class PluginOut(BaseModel):
     is_embedding_active: bool
     base_url: str
     api_key_set: bool  # 不暴露 api_key 明文
-    llm_model: str
     embedding_model: str
+    extra_json: str | None = None
     error: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -207,8 +207,9 @@ class PluginUpdate(BaseModel):
     category: str | None = Field(None, pattern="^(model|other)$")
     base_url: str | None = None
     api_key: str | None = None  # 留空表示不修改
-    llm_model: str | None = None
     embedding_model: str | None = None
+    is_active: bool | None = None
+    is_embedding_active: bool | None = None
     extra_json: str | None = None
 
 
@@ -242,10 +243,14 @@ class PluginModelsResponse(BaseModel):
     models: list[str]
 
 
+class ModelInfo(BaseModel):
+    name: str
+    context: int = 4096
+
 class ActiveModelOut(BaseModel):
     provider_name: str
     label: str
-    models: list[str]
+    models: list[ModelInfo]
 
 
 # ---------- Skill ----------
@@ -312,6 +317,14 @@ class AppOut(BaseModel):
         from_attributes = True
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class AppChatRequest(BaseModel):
-    question: str = Field(..., min_length=1)
+    question: str = ""
     stream: bool = False
+    messages: list[ChatMessage] | None = None
+
+class AppCompressRequest(BaseModel):
+    messages: list[ChatMessage]

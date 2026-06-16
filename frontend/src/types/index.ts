@@ -119,8 +119,8 @@ export interface Plugin {
   isEmbeddingActive: boolean;
   baseUrl: string;
   apiKeySet: boolean;
-  llmModel: string;
   embeddingModel: string;
+  extraJson: string | null;
   error: string | null;
   createdAt: string;
   updatedAt: string;

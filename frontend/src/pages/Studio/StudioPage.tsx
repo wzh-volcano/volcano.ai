@@ -31,6 +31,7 @@ export const StudioPage: React.FC = () => {
   const error = useStudioStore((s) => s.error);
   const loadApps = useStudioStore((s) => s.loadApps);
   const createApp = useStudioStore((s) => s.createApp);
+  const updateApp = useStudioStore((s) => s.updateApp);
   const deleteApp = useStudioStore((s) => s.deleteApp);
   const currentUser = useAuthStore((s) => s.currentUser);
   const isAdmin = currentUser?.role === 'admin';
@@ -67,8 +68,12 @@ export const StudioPage: React.FC = () => {
   const handleCreate = async (payload: { name: string; icon?: string; description?: string }) => {
     setSubmitting(true);
     try {
-      await createApp(payload);
-      setCurrentPage(1);
+      if (editingApp) {
+        await updateApp(editingApp.id, payload);
+      } else {
+        await createApp(payload);
+        setCurrentPage(1);
+      }
       setFormOpen(false);
     } finally {
       setSubmitting(false);

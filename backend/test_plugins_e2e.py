@@ -150,7 +150,6 @@ s, d = req(
     body={
         "base_url": "https://example.com/v1",
         "api_key": "sk-test-1234567890",
-        "llm_model": "gpt-test",
         "embedding_model": "emb-test",
     },
 )
@@ -158,8 +157,6 @@ step("configure openai_like", s, d)
 assert s == 200
 assert d["base_url"] == "https://example.com/v1"
 assert d["api_key_set"] is True
-assert d["llm_model"] == "gpt-test"
-
 # 5. 安装（标记 installed）
 s, d = req("POST", "/api/plugins/openai_like/install", token=admin_token)
 step("install openai_like", s, d)
@@ -183,7 +180,6 @@ s, _ = req(
     body={
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "api_key": "zhipu-fake-key",
-        "llm_model": "glm-4-flash",
         "embedding_model": "embedding-3",
     },
 )
@@ -224,7 +220,7 @@ assert demo[0]["source"] == "uploaded"
 # 11. 配置 + install + activate demo
 s, _ = req(
     "PATCH", "/api/plugins/demo_provider", token=admin_token,
-    body={"base_url": "http://demo", "api_key": "demo-key", "llm_model": "demo-llm"},
+    body={"base_url": "http://demo", "api_key": "demo-key"},
 )
 assert s == 200
 s, _ = req("POST", "/api/plugins/demo_provider/install", token=admin_token)

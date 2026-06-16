@@ -45,8 +45,8 @@ def _to_out(p: ProviderConfig) -> schemas.PluginOut:
         is_embedding_active=bool(getattr(p, "is_embedding_active", False)),
         base_url=p.base_url or "",
         api_key_set=bool(p.api_key),
-        llm_model=p.llm_model or "",
         embedding_model=p.embedding_model or "",
+        extra_json=p.extra_json or None,
         error=p.error,
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -125,10 +125,19 @@ def update_plugin(
         row.base_url = payload.base_url
     if payload.api_key:  # 留空字符串视为不修改
         row.api_key = payload.api_key
-    if payload.llm_model is not None:
-        row.llm_model = payload.llm_model
     if payload.embedding_model is not None:
         row.embedding_model = payload.embedding_model
+    if payload.is_active is not None:
+        if payload.is_active:
+            row.is_active = True
+        else:
+            row.is_active = False
+    if payload.is_embedding_active is not None:
+        if payload.is_embedding_active:
+            db.execute(update(ProviderConfig).values(is_embedding_active=False))
+            row.is_embedding_active = True
+        else:
+            row.is_embedding_active = False
     if payload.extra_json is not None:
         try:
             json.loads(payload.extra_json)  # 校验合法 JSON
@@ -171,7 +180,6 @@ def list_plugin_models(
     config = {
         "base_url": base_url,
         "api_key": api_key,
-        "llm_model": row.llm_model,
         "embedding_model": row.embedding_model,
     }
     try:
