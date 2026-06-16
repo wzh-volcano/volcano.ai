@@ -1,4 +1,4 @@
-"""ORM 模型：KnowledgeBase / Document / Chunk。
+"""ORM 模型：User / KnowledgeBase / Document / Chunk / Skill / ProviderConfig / App。
 
 向量直接以 BLOB 存入 chunks.embedding（numpy.float32 的 raw bytes），
 检索时还原为 ndarray 做余弦相似度。
@@ -28,8 +28,13 @@ class KnowledgeBase(Base):
     visibility: Mapped[str] = mapped_column(String(16), default="private")  # private | team
     provider: Mapped[str] = mapped_column(String(32), default="zhipu")
     embedding_model: Mapped[str] = mapped_column(String(64), default="embedding-3")
+    chunk_method: Mapped[str] = mapped_column(
+        String(20), default="general_auto"
+    )  # general_auto / general_custom / markdown_header / parent_child
     chunk_size: Mapped[int] = mapped_column(Integer, default=500)
     chunk_overlap: Mapped[int] = mapped_column(Integer, default=50)
+    # JSON 扩展字段：存储 separators（自定义分隔符）、parent_chunk_size 等
+    extra_json: Mapped[str] = mapped_column(Text, default="{}")
     doc_count: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="ready")  # ready | indexing | error
@@ -52,8 +57,12 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(256), nullable=False)
     file_type: Mapped[str] = mapped_column(String(16), default="other")
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    # 原始文件落盘路径，用于"重新分片"找回原文件
+    file_path: Mapped[str] = mapped_column(String(512), default="")
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="ready")  # ready | indexing | error
+    # 是否参与 RAG 检索；False 时该文档的 chunks 在 search 时被过滤掉
+    enabled: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     kb: Mapped["KnowledgeBase"] = relationship(back_populates="documents")
@@ -71,9 +80,34 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 父子分段：子块引用父块
+    parent_chunk_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("chunks.id"), nullable=True
+    )
+    # 父块完整内容（仅子块填写，存储父块的 content）
+    parent_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(String(256), default="")
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    owner: Mapped["User"] = relationship(back_populates="skills")
 
 
 class User(Base):
@@ -87,6 +121,12 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+    skills: Mapped[list["Skill"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+    apps: Mapped[list["App"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan"
     )
 
@@ -104,7 +144,10 @@ class ProviderConfig(Base):
     source: Mapped[str] = mapped_column(String(16), default="builtin")  # builtin | uploaded
     module_path: Mapped[str] = mapped_column(String(256), default="")  # 形如 "pkg.mod:ClassName"
     installed: Mapped[bool] = mapped_column(default=False)
+    # is_active: 当前生效的 LLM provider；is_embedding_active: 当前生效的 embedding provider
+    # 二者独立，允许 LLM 走一个插件、embedding 走另一个
     is_active: Mapped[bool] = mapped_column(default=False)
+    is_embedding_active: Mapped[bool] = mapped_column(default=False)
     base_url: Mapped[str] = mapped_column(String(512), default="")
     api_key: Mapped[str] = mapped_column(String(512), default="")
     llm_model: Mapped[str] = mapped_column(String(128), default="")
@@ -115,3 +158,25 @@ class ProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class App(Base):
+    __tablename__ = "apps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    icon: Mapped[str] = mapped_column(String(32), default="\U0001f916")
+    description: Mapped[str] = mapped_column(Text, default="")
+    type: Mapped[str] = mapped_column(String(32), default="chat_assistant")
+    category: Mapped[str] = mapped_column(String(32), default="chat_assistant")
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    owner: Mapped["User"] = relationship(back_populates="apps")
