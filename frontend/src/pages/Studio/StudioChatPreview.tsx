@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send } from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -19,7 +20,7 @@ interface Props {
   };
 }
 
-export const StudioChatPreview: React.FC<Props> = ({ appId: _appId, config }) => {
+export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: '你好！我是聊天助手，有什么可以帮助你的？' },
   ]);
@@ -44,10 +45,10 @@ export const StudioChatPreview: React.FC<Props> = ({ appId: _appId, config }) =>
     setError('');
 
     try {
-      // Placeholder — real endpoint wired in Task 12
+      const result = await api.chatWithApp(appId, q);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `已收到消息。当前配置：Provider=${config.provider}, Model=${config.model}` },
+        { role: 'assistant', content: result.answer },
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : '请求失败');
