@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send } from 'lucide-react';
-import { api } from '@/lib/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -28,6 +29,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (listRef.current) {
@@ -35,7 +37,13 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
     }
   }, [messages]);
 
-  const handleSend = async () => {
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const handleSend = useCallback(async () => {
     const q = input.trim();
     if (!q || sending) return;
 
@@ -44,18 +52,73 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
     setSending(true);
     setError('');
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const result = await api.chatWithApp(appId, q);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: result.answer },
-      ]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '请求失败');
+      const token = localStorage.getItem('volcano_token');
+      const response = await fetch(`/api/apps/${appId}/chat?stream=true`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ question: q }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+          const data = trimmed.slice(6);
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.done) break;
+            if (parsed.token) {
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === 'assistant') {
+                  next[next.length - 1] = { ...last, content: last.content + parsed.token };
+                }
+                return next;
+              });
+            }
+            if (parsed.error) {
+              setError(parsed.error);
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        setError(e instanceof Error ? e.message : '请求失败');
+      }
     } finally {
       setSending(false);
+      abortRef.current = null;
     }
-  };
+  }, [input, sending, appId]);
 
   return (
     <div className="flex flex-col h-full">
@@ -72,9 +135,15 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
             <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
               msg.role === 'user'
                 ? 'bg-accent text-white rounded-br-md'
-                : 'bg-bg-2 border border-border text-text rounded-bl-md'
+                : 'bg-bg-2 border border-border text-text rounded-bl-md prose prose-invert prose-xs max-w-none'
             }`}>
-              {msg.content}
+              {msg.role === 'user' ? (
+                msg.content
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.content || '…'}
+                </ReactMarkdown>
+              )}
             </div>
           </div>
         ))}
