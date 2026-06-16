@@ -28,8 +28,13 @@ class KBCreate(BaseModel):
     description: str = ""
     visibility: str = "private"
     embedding_model: str | None = None
+    chunk_method: str = "general_auto"
     chunk_size: int = 500
     chunk_overlap: int = 50
+    # general_custom 时可传入自定义分隔符
+    separators: list[str] | None = None
+    # parent_child 时可传入父块大小
+    parent_chunk_size: int | None = None
 
 
 class KBOut(BaseModel):
@@ -39,6 +44,7 @@ class KBOut(BaseModel):
     visibility: str
     provider: str
     embedding_model: str
+    chunk_method: str
     chunk_size: int
     chunk_overlap: int
     doc_count: int
@@ -61,6 +67,52 @@ class DocumentOut(BaseModel):
     file_size: int
     chunk_count: int
     status: str
+    enabled: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TextDocumentRequest(BaseModel):
+    """直接粘贴文本内容创建文档（支持 Markdown / 纯文本）。"""
+    title: str = Field(..., min_length=1, max_length=256)
+    content: str = Field(..., min_length=1)
+    file_type: str = "md"  # md | txt
+
+
+# ---------- Reindex ----------
+class ReindexBatchRequest(BaseModel):
+    """批量再次分片入参。"""
+    doc_ids: list[int] = Field(..., min_length=1)
+
+
+class ReindexBatchItemResult(BaseModel):
+    doc_id: int
+    status: str  # ready | error
+    error: str | None = None
+
+
+class ReindexBatchResponse(BaseModel):
+    results: list[ReindexBatchItemResult]
+
+
+# ---------- Toggle Enabled ----------
+class ToggleEnabledRequest(BaseModel):
+    """批量启用 / 禁用文档。"""
+    doc_ids: list[int] = Field(..., min_length=1)
+    enabled: bool
+
+
+# ---------- Chunk ----------
+class ChunkOut(BaseModel):
+    id: int
+    doc_id: int
+    kb_id: int
+    content: str
+    token_count: int
+    parent_chunk_id: int | None = None
+    parent_content: str | None = None
     created_at: datetime
 
     class Config:
@@ -138,6 +190,7 @@ class PluginOut(BaseModel):
     module_path: str
     installed: bool
     is_active: bool
+    is_embedding_active: bool
     base_url: str
     api_key_set: bool  # 不暴露 api_key 明文
     llm_model: str
@@ -187,3 +240,71 @@ class PluginModelsResponse(BaseModel):
     """可用模型 ID 列表。"""
 
     models: list[str]
+
+
+# ---------- Skill ----------
+class SkillCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    description: str = ""
+    content: str = Field(..., min_length=1)
+
+
+class SkillUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=256)
+    description: str | None = None
+    content: str | None = Field(None, min_length=1)
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    content: str
+    filename: str
+    owner_id: int
+    owner_username: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---------- App ----------
+class AppCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    icon: str = "\U0001f916"
+    description: str = ""
+
+
+class AppUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=128)
+    icon: str | None = None
+    description: str | None = None
+    config_json: str | None = None
+
+
+class AppStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(draft|published)$")
+
+
+class AppOut(BaseModel):
+    id: int
+    name: str
+    icon: str
+    description: str
+    type: str
+    category: str
+    status: str
+    config_json: str
+    owner_id: int
+    owner_username: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AppChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
