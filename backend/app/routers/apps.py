@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import App, User
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+
+from ..models import App, KnowledgeBase, User
+from ..providers import get_current
+from ..rag import vectorstore
 
 router = APIRouter(prefix="/api/apps", tags=["apps"])
 
@@ -135,3 +140,52 @@ def update_app_status(
     db.commit()
     db.refresh(app)
     return _to_out(app)
+
+
+@router.post("/{app_id}/chat")
+def chat_with_app(
+    app_id: int,
+    payload: schemas.AppChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """使用应用的配置进行聊天测试。从 app 的 config_json 读取模型/提示词/知识库。"""
+    app = get_app_or_404(app_id, db, current_user)
+    config = json.loads(app.config_json or "{}")
+
+    system_prompt = config.get("prompt", "") or "你是一个有用的 AI 助手。"
+    kb_ids = config.get("kb_ids", [])
+
+    # 组装知识库上下文
+    context_parts = []
+    for kb_id in kb_ids:
+        kb = db.get(KnowledgeBase, kb_id)
+        if kb is None or (current_user.role != "admin" and kb.owner_id != current_user.id):
+            continue
+        try:
+            retrieved = vectorstore.search(
+                db, kb_id=kb.id, query=payload.question, top_k=3,
+                chunk_method=kb.chunk_method or "general_auto",
+            )
+            for chunk, score in retrieved:
+                context_parts.append(f"[{chunk.document.filename if chunk.document else ''}] {chunk.content}")
+        except Exception:
+            pass
+
+    full_prompt = system_prompt
+    if context_parts:
+        full_prompt += "\n\n参考资料：\n" + "\n\n".join(context_parts)
+
+    # 调用 LLM
+    try:
+        provider = get_current(db)
+        llm = provider.get_llm()
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "{system}"),
+            ("human", "{question}"),
+        ])
+        chain = prompt | llm | StrOutputParser()
+        answer = chain.invoke({"system": full_prompt, "question": payload.question})
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"调用模型失败：{str(e)}")
