@@ -87,7 +87,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="bg-[#16191d] border-r border-border flex flex-col overflow-hidden">
+    <aside className="bg-bg-2 border-r border-border flex flex-col overflow-hidden">
       {/* 顶部菜单 */}
       <nav className="px-2 pt-2.5 pb-1">
         <NavLink to="/" className={menuItemClass} end>
@@ -99,13 +99,17 @@ export const Sidebar: React.FC = () => {
           <Square size={16} className="text-text-dim" />
           打开工作区
         </a>
-        <a className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-text text-[13px] hover:bg-bg-hover transition-colors cursor-pointer">
+        <NavLink to="/skills" className={menuItemClass}>
           <Wand2 size={16} className="text-text-dim" />
           技能
-        </a>
+        </NavLink>
         <NavLink to="/knowledge-base" className={menuItemClass}>
           <Library size={16} className="text-text-dim" />
           知识库
+        </NavLink>
+        <NavLink to="/studio" className={menuItemClass}>
+          <LayoutGrid size={16} className="text-text-dim" />
+          工作室
         </NavLink>
         {isAdmin && (
           <NavLink to="/users" className={menuItemClass}>
@@ -161,7 +165,7 @@ export const Sidebar: React.FC = () => {
       {/* 用户信息（可点击弹出下拉菜单） */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2.5 px-3.5 py-2.5 border-t border-border bg-[#14171b] w-full text-left hover:bg-bg-hover transition-colors">
+          <button className="flex items-center gap-2.5 px-3.5 py-2.5 border-t border-border bg-bg-2 w-full text-left hover:bg-bg-hover transition-colors">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent to-[#b58cff] inline-flex items-center justify-center font-semibold text-xs text-white shrink-0">
               {currentUser?.username?.charAt(0)?.toUpperCase() ?? 'U'}
             </div>
