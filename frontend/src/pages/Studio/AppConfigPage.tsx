@@ -54,6 +54,14 @@ export const AppConfigPage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(false);
 
+  // Provider/Model dropdown data
+  const [activeProviders, setActiveProviders] = useState<{ provider_name: string; label: string; models: string[] }[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+
+  // Skills & KBs
+  const [availableSkills, setAvailableSkills] = useState<{ id: number; name: string }[]>([]);
+  const [availableKbs, setAvailableKbs] = useState<{ id: number; name: string }[]>([]);
+
   useEffect(() => {
     if (app) {
       setName(app.name);
@@ -71,6 +79,45 @@ export const AppConfigPage: React.FC = () => {
       }
     }
   }, [app]);
+
+  // Fetch active providers
+  useEffect(() => {
+    (async () => {
+      try {
+        const { api } = await import('@/lib/api');
+        const providers = await api.fetchActiveModels();
+        setActiveProviders(providers);
+      } catch {
+        // 忽略错误，下拉列表为空
+      }
+    })();
+  }, []);
+
+  // When provider changes, update available models
+  useEffect(() => {
+    const p = activeProviders.find((p) => p.provider_name === provider);
+    setAvailableModels(p?.models || []);
+    if (p && !p.models.includes(model)) {
+      setModel('');
+    }
+  }, [provider, activeProviders, model]);
+
+  // Fetch skills and KBs
+  useEffect(() => {
+    (async () => {
+      try {
+        const { api } = await import('@/lib/api');
+        const [skills, kbs] = await Promise.all([
+          api.listSkills(),
+          api.listKbs(),
+        ]);
+        setAvailableSkills(skills.map((s: any) => ({ id: s.id, name: s.name })));
+        setAvailableKbs(kbs.map((kb: any) => ({ id: Number(kb.id), name: kb.name })));
+      } catch {
+        // 忽略
+      }
+    })();
+  }, []);
 
   const handleSave = async () => {
     if (!app) return;
@@ -195,11 +242,37 @@ export const AppConfigPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label htmlFor="cfg-provider">Provider</Label>
-                  <Input id="cfg-provider" value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="openai" />
+                  <select
+                    id="cfg-provider"
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value)}
+                    className="flex h-9 w-full rounded-lg border border-border bg-bg-2 px-3 py-1 text-xs text-text shadow-sm transition-colors placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                  >
+                    <option value="">-- 选择 Provider --</option>
+                    {activeProviders.map((p) => (
+                      <option key={p.provider_name} value={p.provider_name}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  {activeProviders.length === 0 && (
+                    <p className="text-2xs text-text-mute">暂无可用模型插件，请先到插件管理配置并安装</p>
+                  )}
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="cfg-model">模型</Label>
-                  <Input id="cfg-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" />
+                  <select
+                    id="cfg-model"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="flex h-9 w-full rounded-lg border border-border bg-bg-2 px-3 py-1 text-xs text-text shadow-sm transition-colors placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    disabled={!provider}
+                  >
+                    <option value="">-- 选择模型 --</option>
+                    {availableModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -220,18 +293,62 @@ export const AppConfigPage: React.FC = () => {
 
             <Separator />
 
-            {/* Skills placeholder */}
+            {/* Skills */}
             <div>
               <h3 className="text-sm font-medium text-text mb-3">技能配置</h3>
-              <p className="text-xs text-text-dim">选择已有技能作为 System Prompt 模板（功能待实现）</p>
+              {availableSkills.length === 0 ? (
+                <p className="text-xs text-text-dim">暂无技能，请先到技能管理页面创建</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {availableSkills.map((s) => (
+                    <label key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={skillIds.includes(s.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSkillIds([...skillIds, s.id]);
+                          } else {
+                            setSkillIds(skillIds.filter((id) => id !== s.id));
+                          }
+                        }}
+                        className="rounded border-border"
+                      />
+                      <span className="text-text">{s.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             <Separator />
 
-            {/* Knowledge Bases placeholder */}
+            {/* Knowledge Bases */}
             <div>
               <h3 className="text-sm font-medium text-text mb-3">关联知识库</h3>
-              <p className="text-xs text-text-dim">选择知识库作为 RAG 数据源（功能待实现）</p>
+              {availableKbs.length === 0 ? (
+                <p className="text-xs text-text-dim">暂无知识库，请先创建</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {availableKbs.map((kb) => (
+                    <label key={kb.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={kbIds.includes(kb.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setKbIds([...kbIds, kb.id]);
+                          } else {
+                            setKbIds(kbIds.filter((id) => id !== kb.id));
+                          }
+                        }}
+                        className="rounded border-border"
+                      />
+                      <span className="text-text">{kb.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
