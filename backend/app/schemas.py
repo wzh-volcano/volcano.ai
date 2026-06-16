@@ -171,3 +171,19 @@ class PluginImportRequest(BaseModel):
     """通过 URL 导入插件。"""
 
     url: str = Field(..., min_length=1, max_length=2048)
+
+
+class PluginModelsRequest(BaseModel):
+    """拉取可用模型列表：表单当前值优先，留空则回退到已保存配置。
+
+    允许管理员在保存前就用刚填好的 base_url/api_key 试拉。
+    """
+
+    base_url: str | None = None
+    api_key: str | None = None  # 留空表示用 DB 里已存的 key
+
+
+class PluginModelsResponse(BaseModel):
+    """可用模型 ID 列表。"""
+
+    models: list[str]

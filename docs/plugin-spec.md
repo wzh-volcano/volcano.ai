@@ -127,6 +127,41 @@ def config_fields(self) -> list[dict]: ...
 
 `api_key` 字段建议：`type="password"`，`value` 仅返回脱敏前缀（如 `"sk-***"`）。
 
+### 4.6 模型列表（可选）
+
+```python
+def list_models(self) -> list[str]: ...
+```
+
+可选方法：从厂商端点实时拉取当前可用的模型 ID 列表。前端「插件管理 → 配置」弹窗的**「拉取模型列表」**按钮依赖它——点击后把返回的列表挂到 `llm_model` / `embedding_model` 输入框的下拉建议里，管理员可直接选择而无需手填。
+
+**调用契约：**
+
+- 平台用**表单当前值**（含未保存的 `base_url` / `api_key`，留空时回退到 `provider_configs` 已存配置）实例化 provider 后调用，因此**必须**从 `self._config` 取连接参数，不能依赖已落库的配置。
+- 返回字符串列表，建议去重 + 排序。
+- 失败时抛 `RuntimeError(原因)`，平台会转成 HTTP 400 把原因透传给前端（如「API Key 无效 / 401」「连接超时」）。不要吞异常返回空列表——空列表会被当成「该厂商确实没有模型」。
+- **不实现该方法不会报错**：平台用 `hasattr` 探测，缺失时按钮提示「该插件不支持拉取模型列表，请手动填写」。因此第三方老插件无需改动。
+
+**OpenAI 兼容协议的最小实现**（智谱 / DeepSeek / Moonshot 等可直接复用）：
+
+```python
+def list_models(self) -> list[str]:
+    import httpx
+
+    base_url = self.base_url().rstrip("/")
+    resp = httpx.get(
+        f"{base_url}/models",
+        headers={"Authorization": f"Bearer {self.api_key()}"} if self.api_key() else {},
+        timeout=10.0,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("API Key 无效或未授权（401）")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"厂商返回 HTTP {resp.status_code}")
+    items = resp.json().get("data", [])
+    return sorted({it["id"] for it in items if isinstance(it, dict) and it.get("id")})
+```
+
 ---
 
 ## 5. 最小 Provider 示例

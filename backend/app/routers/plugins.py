@@ -26,6 +26,7 @@ from ..providers import (
     load_uploaded_plugins,
     sync_uploaded_to_db,
 )
+from ..providers.registry import _instantiate
 from ..services import plugin_loader
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
@@ -137,6 +138,58 @@ def update_plugin(
     db.commit()
     db.refresh(row)
     return _to_out(row)
+
+
+@router.post("/{name}/models", response_model=schemas.PluginModelsResponse)
+def list_plugin_models(
+    name: str,
+    payload: schemas.PluginModelsRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.PluginModelsResponse:
+    """拉取该插件当前可用的模型 ID 列表。
+
+    - 表单值优先：``payload.base_url`` / ``payload.api_key`` 留空时回退到
+      已保存的 ProviderConfig 行（允许在保存前用刚填的值试拉）。
+    - Provider 不支持拉取（未实现 ``list_models``）→ 400 友好提示。
+    - 端点调用失败（401 / 超时 / 网络）→ 400 带原始原因。
+    """
+    row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+    if row.error:
+        raise HTTPException(status_code=400, detail=f"插件加载失败：{row.error}")
+
+    base_url = (payload.base_url or row.base_url or "").strip()
+    # 表单未填 api_key 时回退 DB 已存值
+    api_key = payload.api_key or row.api_key or ""
+
+    if not base_url:
+        raise HTTPException(status_code=400, detail="请先填写 Base URL")
+
+    config = {
+        "base_url": base_url,
+        "api_key": api_key,
+        "llm_model": row.llm_model,
+        "embedding_model": row.embedding_model,
+    }
+    try:
+        config["extra"] = json.loads(row.extra_json or "{}")
+    except json.JSONDecodeError:
+        config["extra"] = {}
+
+    provider = _instantiate(row.name, config=config)
+    if not hasattr(provider, "list_models"):
+        raise HTTPException(
+            status_code=400, detail="该插件不支持拉取模型列表，请手动填写"
+        )
+    try:
+        models = provider.list_models()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 - 转成友好提示，避免 500
+        raise HTTPException(status_code=400, detail=f"拉取失败：{type(e).__name__}: {e}")
+    return schemas.PluginModelsResponse(models=models)
 
 
 @router.post("/{name}/install", response_model=schemas.PluginOut)

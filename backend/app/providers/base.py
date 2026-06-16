@@ -38,6 +38,16 @@ class Provider(Protocol):
     def get_embeddings(self) -> Embeddings:
         ...
 
+    def list_models(self) -> list[str]:
+        """可选：从厂商端点拉取当前可用的模型 ID 列表。
+
+        供前端「拉取模型列表」按钮使用，让管理员在配置
+        llm_model / embedding_model 时从下拉建议中选择，而非手填。
+        未实现该方法的旧插件不影响其它功能——后端会用 hasattr 探测，
+        缺失时端点返回友好提示。
+        """
+        ...
+
     def config_fields(self) -> list[dict]:
         """返回该 provider 的可配置字段定义，供 /api/providers 展示。"""
         ...

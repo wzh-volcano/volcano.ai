@@ -96,6 +96,10 @@ export interface PluginInstallResponse {
   error: string | null;
 }
 
+export interface PluginModelsResponse {
+  models: string[];
+}
+
 // ---------- Token 管理 ----------
 const TOKEN_KEY = 'volcano_token';
 
@@ -401,6 +405,23 @@ export const api = {
       body: JSON.stringify(data),
     });
     return mapPlugin(result);
+  },
+
+  /**
+   * 拉取插件的可用模型列表。
+   * 表单值优先：传入当前编辑中的 base_url / api_key，留空后端回退到已保存配置。
+   * 用于配置弹窗的「拉取模型列表」按钮。
+   */
+  fetchPluginModels: async (
+    name: string,
+    data: { base_url?: string; api_key?: string },
+  ): Promise<string[]> => {
+    const result = await request<PluginModelsResponse>(`/api/plugins/${name}/models`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return result.models;
   },
 
   /** 标记安装 */

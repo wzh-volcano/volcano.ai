@@ -87,6 +87,46 @@ class OpenAILikeProvider:
             api_key=self.api_key(),
         )
 
+    # ---- 模型列表（可选能力，供前端「拉取模型列表」按钮）----
+    def list_models(self) -> list[str]:
+        """从 OpenAI 兼容的 ``GET {base_url}/models`` 端点拉取可用模型 ID。
+
+        失败时抛 ``RuntimeError``，由上层路由转成 400，便于前端展示
+        具体原因（如 401 Key 无效、连接超时等）。
+        """
+        import httpx
+
+        base_url = self.base_url().rstrip("/")
+        api_key = self.api_key()
+        try:
+            resp = httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                timeout=10.0,
+            )
+        except httpx.TimeoutException as e:
+            raise RuntimeError(f"连接 {base_url} 超时") from e
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"请求失败：{e}") from e
+
+        if resp.status_code == 401:
+            raise RuntimeError("API Key 无效或未授权（401）")
+        if resp.status_code >= 400:
+            raise RuntimeError(f"厂商返回 HTTP {resp.status_code}")
+
+        try:
+            payload = resp.json()
+        except ValueError as e:
+            raise RuntimeError("响应不是合法 JSON") from e
+
+        items = payload.get("data") if isinstance(payload, dict) else None
+        models: list[str] = []
+        if isinstance(items, list):
+            for it in items:
+                if isinstance(it, dict) and it.get("id"):
+                    models.append(str(it["id"]))
+        return sorted(dict.fromkeys(models))  # 去重 + 排序
+
     # ---- 配置字段（供 /api/plugins 展示与前端表单）----
     def config_fields(self) -> list[dict]:
         return [

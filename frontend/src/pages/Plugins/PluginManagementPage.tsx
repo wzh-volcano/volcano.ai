@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Package,
   PackageCheck,
+  RefreshCw,
 } from 'lucide-react';
 import type { Plugin } from '@/types';
 
@@ -68,6 +69,12 @@ export const PluginManagementPage: React.FC = () => {
   const [configTarget, setConfigTarget] = useState<Plugin | null>(null);
   const [configForm, setConfigForm] = useState<ConfigFormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+
+  // 配置弹窗：从厂商拉取的模型列表（供 LLM/Embedding 下拉建议）
+  const [modelsList, setModelsList] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsInfo, setModelsInfo] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
 
@@ -135,6 +142,34 @@ export const PluginManagementPage: React.FC = () => {
       llm_model: p.llmModel,
       embedding_model: p.embeddingModel,
     });
+    // 重置模型列表相关状态
+    setModelsList([]);
+    setModelsError(null);
+    setModelsInfo(null);
+  };
+
+  const handleFetchModels = async () => {
+    if (!configTarget) return;
+    setModelsLoading(true);
+    setModelsError(null);
+    setModelsInfo(null);
+    try {
+      // 表单当前值优先；api_key 留空时后端回退到 DB 已存值
+      const models = await api.fetchPluginModels(configTarget.name, {
+        base_url: configForm.base_url || undefined,
+        api_key: configForm.api_key || undefined,
+      });
+      setModelsList(models);
+      if (models.length === 0) {
+        setModelsInfo('该厂商未返回任何模型，请手动填写');
+      } else {
+        setModelsInfo(`已获取 ${models.length} 个模型，可在下方下拉选择`);
+      }
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : '拉取失败');
+    } finally {
+      setModelsLoading(false);
+    }
   };
 
   const submitConfig = async () => {
@@ -534,28 +569,82 @@ export const PluginManagementPage: React.FC = () => {
                 placeholder={configTarget?.apiKeySet ? '已设置，留空保持不变' : 'sk-...'}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label htmlFor="cfg-llm">LLM 模型</Label>
-                <Input
-                  id="cfg-llm"
-                  value={configForm.llm_model}
-                  onChange={(e) =>
-                    setConfigForm({ ...configForm, llm_model: e.target.value })
-                  }
-                  placeholder="gpt-4o-mini"
-                />
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-2xs text-text-mute">模型选择</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-2xs gap-1"
+                  onClick={handleFetchModels}
+                  disabled={modelsLoading || !configForm.base_url}
+                  title={!configForm.base_url ? '请先填写 Base URL' : '从厂商拉取可用模型'}
+                >
+                  {modelsLoading ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={12} />
+                  )}
+                  拉取模型列表
+                </Button>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cfg-emb">Embedding 模型</Label>
-                <Input
-                  id="cfg-emb"
-                  value={configForm.embedding_model}
-                  onChange={(e) =>
-                    setConfigForm({ ...configForm, embedding_model: e.target.value })
-                  }
-                  placeholder="text-embedding-3-small"
-                />
+              {/* 拉取结果提示 */}
+              {modelsInfo && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-success/10 text-success text-2xs">
+                  <CheckCircle2 size={11} />
+                  <span>{modelsInfo}</span>
+                  <button
+                    onClick={() => setModelsInfo(null)}
+                    className="ml-auto text-success/70 hover:text-success"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              {modelsError && (
+                <div className="flex items-start gap-1.5 px-2 py-1.5 rounded bg-warning/10 text-warning text-2xs">
+                  <AlertCircle size={11} className="shrink-0 mt-0.5" />
+                  <span className="break-all">{modelsError}</span>
+                  <button
+                    onClick={() => setModelsError(null)}
+                    className="ml-auto text-warning/70 hover:text-warning shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              {/* datalist：两个输入框共用一份候选；仍可手动输入 */}
+              <datalist id="cfg-model-options">
+                {modelsList.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="cfg-llm">LLM 模型</Label>
+                  <Input
+                    id="cfg-llm"
+                    list="cfg-model-options"
+                    value={configForm.llm_model}
+                    onChange={(e) =>
+                      setConfigForm({ ...configForm, llm_model: e.target.value })
+                    }
+                    placeholder="gpt-4o-mini"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="cfg-emb">Embedding 模型</Label>
+                  <Input
+                    id="cfg-emb"
+                    list="cfg-model-options"
+                    value={configForm.embedding_model}
+                    onChange={(e) =>
+                      setConfigForm({ ...configForm, embedding_model: e.target.value })
+                    }
+                    placeholder="text-embedding-3-small"
+                  />
+                </div>
               </div>
             </div>
             {configTarget?.error && (

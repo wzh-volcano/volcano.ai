@@ -69,6 +69,39 @@ class OllamaProvider:
             base_url=self.base_url(),
         )
 
+    # ---- 模型列表（可选能力，供前端「拉取模型列表」按钮）----
+    def list_models(self) -> list[str]:
+        """从 Ollama ``GET {base_url}/api/tags`` 拉取本地已安装的模型名。
+
+        Ollama 不区分 chat / embedding，统一返回所有已 pull 的模型。
+        失败时抛 ``RuntimeError``，由上层路由转成 400。
+        """
+        import httpx
+
+        base_url = self.base_url().rstrip("/")
+        try:
+            resp = httpx.get(f"{base_url}/api/tags", timeout=10.0)
+        except httpx.TimeoutException as e:
+            raise RuntimeError(f"连接 {base_url} 超时") from e
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"请求失败：{e}") from e
+
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Ollama 返回 HTTP {resp.status_code}")
+
+        try:
+            payload = resp.json()
+        except ValueError as e:
+            raise RuntimeError("响应不是合法 JSON") from e
+
+        items = payload.get("models") if isinstance(payload, dict) else None
+        models: list[str] = []
+        if isinstance(items, list):
+            for it in items:
+                if isinstance(it, dict) and it.get("name"):
+                    models.append(str(it["name"]))
+        return sorted(dict.fromkeys(models))  # 去重 + 排序
+
     def config_fields(self) -> list[dict]:
         return [
             {
