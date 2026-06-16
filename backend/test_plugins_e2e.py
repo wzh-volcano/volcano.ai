@@ -172,11 +172,10 @@ step("activate openai_like", s, d)
 assert s == 200
 assert d["is_active"] is True
 
-# 7. 当前 provider 应是 openai_like
-s, d = req("GET", "/api/providers/current", token=admin_token)
-step("current provider", s, d)
-assert s == 200
-assert d["name"] == "openai_like"
+# 7. openai_like 应已激活
+s, plugins = req("GET", "/api/plugins", token=admin_token)
+step("openai_like active", s, [p["name"] for p in plugins if p["is_active"]])
+assert any(p["name"] == "openai_like" and p["is_active"] for p in plugins)
 
 # 8. 切换到 zhipu（先配置 + install + activate）
 s, _ = req(
@@ -198,11 +197,13 @@ s, d = req("GET", "/api/providers/current", token=admin_token)
 step("switched to zhipu", s, d)
 assert d["name"] == "zhipu"
 
-# 之前激活的 openai_like 应被取消激活
+# 激活 zhipu 后 openai_like 仍保持激活（允许多个同时激活）
 s, plugins = req("GET", "/api/plugins", token=admin_token)
 active = [p for p in plugins if p["is_active"]]
-assert len(active) == 1 and active[0]["name"] == "zhipu"
-step("only one active", 200, [p["name"] for p in active])
+assert len(active) >= 2
+assert any(p["name"] == "zhipu" for p in active)
+assert any(p["name"] == "openai_like" for p in active)
+step("multiple active", 200, [p["name"] for p in active])
 
 # 9. 上传一个 demo 插件
 zip_bytes = make_demo_plugin_zip("demo_provider")
@@ -232,9 +233,10 @@ s, d = req("POST", "/api/plugins/demo_provider/activate", token=admin_token)
 step("activate demo", s, d)
 assert s == 200
 
-s, d = req("GET", "/api/providers/current", token=admin_token)
-step("current = demo_provider", s, d)
-assert d["name"] == "demo_provider"
+s, plugins = req("GET", "/api/plugins", token=admin_token)
+active = [p for p in plugins if p["is_active"]]
+step("demo active", s, [p["name"] for p in active])
+assert any(p["name"] == "demo_provider" for p in active)
 
 # 12. 卸载 demo（uploaded → 完全删除）
 s, _ = req("DELETE", "/api/plugins/demo_provider", token=admin_token)
