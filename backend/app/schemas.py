@@ -314,3 +314,4 @@ class AppOut(BaseModel):
 
 class AppChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
+    stream: bool = False

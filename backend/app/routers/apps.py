@@ -2,6 +2,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,8 +12,8 @@ from ..deps import get_current_user
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from ..models import App, KnowledgeBase, User
-from ..providers import get_current
+from ..models import App, KnowledgeBase, Skill, User
+from ..providers import get_current, get_provider
 from ..rag import vectorstore
 
 router = APIRouter(prefix="/api/apps", tags=["apps"])
@@ -176,16 +177,46 @@ def chat_with_app(
     if context_parts:
         full_prompt += "\n\n参考资料：\n" + "\n\n".join(context_parts)
 
-    # 调用 LLM
-    try:
-        provider = get_current(db)
-        llm = provider.get_llm()
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "{system}"),
-            ("human", "{question}"),
-        ])
+    # 技能拼接（插入在 system prompt 之前）
+    skill_ids = config.get("skill_ids", [])
+    for sid in skill_ids:
+        skill = db.get(Skill, sid)
+        if skill and (current_user.role == "admin" or skill.owner_id == current_user.id):
+            full_prompt = skill.content + "\n\n" + full_prompt
+
+    # 获取 provider
+    provider_name = config.get("provider", "")
+    if provider_name:
+        provider = get_provider(db, provider_name)
+    else:
+        provider = get_current(db)  # fallback 全局
+
+    llm = provider.get_llm()
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "{system}"),
+        ("human", "{question}"),
+    ])
+
+    # 检查是否流式
+    stream = payload.stream
+
+    if stream:
+        async def event_stream():
+            chain = prompt | llm | StrOutputParser()
+            try:
+                async for chunk in chain.astream_events({"system": full_prompt, "question": payload.question}, version="v1"):
+                    if chunk["event"] == "on_parser_stream":
+                        token = chunk["data"]["chunk"]
+                        yield f"data: {json.dumps({'token': token})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield "data: {\"done\": true}\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+    else:
         chain = prompt | llm | StrOutputParser()
-        answer = chain.invoke({"system": full_prompt, "question": payload.question})
-        return {"answer": answer}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"调用模型失败：{str(e)}")
+        try:
+            answer = chain.invoke({"system": full_prompt, "question": payload.question})
+            return {"answer": answer}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"调用模型失败：{str(e)}")
