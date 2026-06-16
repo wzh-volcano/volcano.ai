@@ -719,4 +719,9 @@ export const api = {
       body: JSON.stringify({ question }),
     });
   },
+
+  /** 获取已安装已激活 provider 的模型列表 */
+  fetchActiveModels: async (): Promise<{ provider_name: string; label: string; models: string[] }[]> => {
+    return request<{ provider_name: string; label: string; models: string[] }[]>('/api/plugins/active-models');
+  },
 };
