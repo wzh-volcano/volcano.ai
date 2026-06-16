@@ -242,6 +242,12 @@ class PluginModelsResponse(BaseModel):
     models: list[str]
 
 
+class ActiveModelOut(BaseModel):
+    provider_name: str
+    label: str
+    models: list[str]
+
+
 # ---------- Skill ----------
 class SkillCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)

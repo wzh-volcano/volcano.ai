@@ -246,8 +246,39 @@ def get_provider(db: Session, name: str | None = None) -> _ProviderProto:
 
 
 def get_current(db: Session) -> _ProviderProto:
-    """当前生效的 provider（DB 中 is_active=True 的那个）。"""
+    """当前生效的 LLM provider（is_active=True）。"""
     return get_provider(db)
+
+
+def _instantiate_from_row(row) -> _ProviderProto:
+    """根据 ProviderConfig 行实例化 provider。"""
+    config = {
+        "base_url": row.base_url,
+        "api_key": row.api_key,
+        "llm_model": row.llm_model,
+        "embedding_model": row.embedding_model,
+    }
+    try:
+        config["extra"] = json.loads(row.extra_json or "{}")
+    except json.JSONDecodeError:
+        config["extra"] = {}
+    return _instantiate(row.name, config=config)
+
+
+def get_current_embedding(db: Session) -> _ProviderProto:
+    """当前生效的 Embedding provider。
+
+    优先取 is_embedding_active=True 的行；若没有任何插件被设为 embedding 激活，
+    回退到 LLM 当前激活的 provider（保持向后兼容）。
+    """
+    from ..models import ProviderConfig
+
+    row = db.scalar(
+        select(ProviderConfig).where(ProviderConfig.is_embedding_active.is_(True))
+    )
+    if row is None:
+        return get_current(db)
+    return _instantiate_from_row(row)
 
 
 # 向后兼容：旧代码 get_current() 不传 db 时，临时开 session
@@ -262,10 +293,42 @@ def get_current_legacy() -> _ProviderProto:
         db.close()
 
 
+def list_active_models(db: Session) -> list[dict]:
+    """返回所有已安装已激活的 provider 及其可用模型列表。"""
+    from ..models import ProviderConfig
+
+    rows = db.scalars(
+        select(ProviderConfig).where(
+            ProviderConfig.installed.is_(True),
+            ProviderConfig.is_active.is_(True),
+            ProviderConfig.error.is_(None),
+        )
+    ).all()
+
+    result: list[dict] = []
+    for row in rows:
+        models: list[str] = []
+        try:
+            provider = _instantiate_from_row(row)
+            if hasattr(provider, "list_models"):
+                models = provider.list_models()
+        except Exception:
+            pass
+        if not models and row.llm_model:
+            models = [row.llm_model]
+        result.append({
+            "provider_name": row.name,
+            "label": row.label,
+            "models": models,
+        })
+    return result
+
+
 # 兜底：保持旧的导入路径可用，但语义换成 legacy
 __all__ = [
     "available_providers",
     "get_current",
+    "get_current_embedding",
     "get_current_legacy",
     "get_provider",
     "list_providers",

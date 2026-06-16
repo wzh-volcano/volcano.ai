@@ -42,6 +42,7 @@ def _to_out(p: ProviderConfig) -> schemas.PluginOut:
         module_path=p.module_path,
         installed=p.installed,
         is_active=p.is_active,
+        is_embedding_active=bool(getattr(p, "is_embedding_active", False)),
         base_url=p.base_url or "",
         api_key_set=bool(p.api_key),
         llm_model=p.llm_model or "",
@@ -216,7 +217,7 @@ def activate_plugin(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ) -> schemas.PluginOut:
-    """切换全局生效的 provider；仅允许激活已安装的插件。"""
+    """标记插件为 LLM 可用（允许多个同时激活）。"""
     row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
     if row is None:
         raise HTTPException(status_code=404, detail="插件不存在")
@@ -225,12 +226,49 @@ def activate_plugin(
     if row.error:
         raise HTTPException(status_code=400, detail=f"插件存在错误：{row.error}")
 
-    # 先全部置为 False，再激活当前
-    db.execute(update(ProviderConfig).values(is_active=False))
     row.is_active = True
     db.commit()
     db.refresh(row)
     return _to_out(row)
+
+
+@router.post("/{name}/activate-embedding", response_model=schemas.PluginOut)
+def activate_embedding_plugin(
+    name: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.PluginOut:
+    """把该插件设为当前生效的 Embedding provider（与 LLM 激活独立）。"""
+    row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+    if not row.installed:
+        raise HTTPException(status_code=400, detail="请先安装插件后再激活")
+    if row.error:
+        raise HTTPException(status_code=400, detail=f"插件存在错误：{row.error}")
+    if not (row.embedding_model or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="请先在配置中填写 Embedding 模型名称",
+        )
+
+    # 互斥：先全部置 False，再激活当前
+    db.execute(update(ProviderConfig).values(is_embedding_active=False))
+    row.is_embedding_active = True
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.get("/active-models", response_model=list[schemas.ActiveModelOut])
+def list_active_models_endpoint(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> list[schemas.ActiveModelOut]:
+    """返回所有已安装已激活 provider 的模型列表。供 Studio 配置页用。"""
+    from ..providers.registry import list_active_models
+
+    return [schemas.ActiveModelOut(**m) for m in list_active_models(db)]
 
 
 @router.delete("/{name}", status_code=204)
@@ -257,6 +295,7 @@ def delete_plugin(
     else:
         row.installed = False
         row.is_active = False
+        row.is_embedding_active = False
         row.api_key = ""
         row.error = None
     db.commit()
