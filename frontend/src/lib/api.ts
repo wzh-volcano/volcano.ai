@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { App, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
 
 // ---------- 后端返回类型 ----------
 export interface KbOut {
@@ -14,6 +14,7 @@ export interface KbOut {
   visibility: string;
   provider: string;
   embedding_model: string;
+  chunk_method: string;
   chunk_size: number;
   chunk_overlap: number;
   doc_count: number;
@@ -32,7 +33,29 @@ export interface DocumentOut {
   file_size: number;
   chunk_count: number;
   status: string;
+  enabled: boolean;
   created_at: string;
+}
+
+export interface ChunkOut {
+  id: number;
+  doc_id: number;
+  kb_id: number;
+  content: string;
+  token_count: number;
+  parent_chunk_id: number | null;
+  parent_content: string | null;
+  created_at: string;
+}
+
+export interface ReindexBatchItemResult {
+  doc_id: number;
+  status: 'ready' | 'error';
+  error: string | null;
+}
+
+export interface ReindexBatchResponse {
+  results: ReindexBatchItemResult[];
 }
 
 export interface ProviderInfo {
@@ -81,6 +104,7 @@ export interface PluginOut {
   module_path: string;
   installed: boolean;
   is_active: boolean;
+  is_embedding_active: boolean;
   base_url: string;
   api_key_set: boolean;
   llm_model: string;
@@ -88,6 +112,37 @@ export interface PluginOut {
   error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SkillOut {
+  id: number;
+  name: string;
+  description: string;
+  content: string;
+  filename: string;
+  owner_id: number;
+  owner_username: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AppOut {
+  id: number;
+  name: string;
+  icon: string;
+  description: string;
+  type: string;
+  category: string;
+  status: string;
+  config_json: string;
+  owner_id: number;
+  owner_username: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatAppResponse {
+  answer: string;
 }
 
 export interface PluginInstallResponse {
@@ -142,6 +197,9 @@ function mapKb(kb: KbOut): KnowledgeBase {
     chunkCount: kb.chunk_count,
     status: kb.status,
     embeddingModel: kb.embedding_model,
+    chunkMethod: (kb.chunk_method || 'general_auto') as KnowledgeBase['chunkMethod'],
+    chunkSize: kb.chunk_size,
+    chunkOverlap: kb.chunk_overlap,
     ownerId: kb.owner_id,
     ownerUsername: kb.owner_username ?? undefined,
   } as KnowledgeBase;
@@ -154,6 +212,9 @@ function mapDoc(doc: DocumentOut): KnowledgeBaseFile {
     size: formatBytes(doc.file_size),
     type: doc.file_type,
     uploadedAt: formatDate(doc.created_at),
+    status: doc.status,
+    chunkCount: doc.chunk_count,
+    enabled: doc.enabled ?? true,
   };
 }
 
@@ -177,6 +238,7 @@ function mapPlugin(p: PluginOut): Plugin {
     modulePath: p.module_path,
     installed: p.installed,
     isActive: p.is_active,
+    isEmbeddingActive: !!p.is_embedding_active,
     baseUrl: p.base_url,
     apiKeySet: p.api_key_set,
     llmModel: p.llm_model,
@@ -184,6 +246,23 @@ function mapPlugin(p: PluginOut): Plugin {
     error: p.error,
     createdAt: formatDate(p.created_at),
     updatedAt: formatDate(p.updated_at),
+  };
+}
+
+function mapApp(a: AppOut): App {
+  return {
+    id: a.id,
+    name: a.name,
+    icon: a.icon,
+    description: a.description,
+    type: a.type,
+    category: a.category,
+    status: a.status as 'draft' | 'published',
+    configJson: a.config_json,
+    ownerId: a.owner_id,
+    ownerUsername: a.owner_username ?? undefined,
+    createdAt: formatDate(a.created_at),
+    updatedAt: formatDate(a.updated_at),
   };
 }
 
@@ -239,11 +318,22 @@ export const api = {
   },
 
   /** 创建知识库 */
-  createKb: async (name: string, description: string): Promise<KnowledgeBase> => {
+  createKb: async (payload: KbCreatePayload): Promise<KnowledgeBase> => {
+    const body: Record<string, unknown> = {
+      name: payload.name,
+      description: payload.description,
+      visibility: 'private',
+    };
+    if (payload.chunkMethod) body.chunk_method = payload.chunkMethod;
+    if (payload.chunkSize !== undefined) body.chunk_size = payload.chunkSize;
+    if (payload.chunkOverlap !== undefined) body.chunk_overlap = payload.chunkOverlap;
+    if (payload.separators?.length) body.separators = payload.separators;
+    if (payload.parentChunkSize !== undefined) body.parent_chunk_size = payload.parentChunkSize;
+
     const data = await request<KbOut>('/api/kb', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, visibility: 'private' }),
+      body: JSON.stringify(body),
     });
     return mapKb(data);
   },
@@ -273,9 +363,95 @@ export const api = {
     return data.map(mapDoc);
   },
 
+  /** 上传文本内容（粘贴 Markdown / 纯文本） */
+  uploadTextDocument: async (
+    kbId: string | number,
+    payload: { title: string; content: string; file_type?: 'md' | 'txt' },
+  ): Promise<KnowledgeBaseFile> => {
+    const data = await request<DocumentOut>(`/api/kb/${kbId}/documents/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: payload.title,
+        content: payload.content,
+        file_type: payload.file_type ?? 'md',
+      }),
+    });
+    return mapDoc(data);
+  },
+
   /** 删除文档 */
   deleteDocument: async (docId: string | number): Promise<void> => {
     await request<void>(`/api/documents/${docId}`, { method: 'DELETE' });
+  },
+
+  /** 单个文档重新分片 */
+  reindexDocument: async (docId: string | number): Promise<KnowledgeBaseFile> => {
+    const data = await request<DocumentOut>(`/api/documents/${docId}/reindex`, {
+      method: 'POST',
+    });
+    return mapDoc(data);
+  },
+
+  /** 批量重新分片 */
+  reindexDocumentsBatch: async (
+    kbId: string | number,
+    docIds: (string | number)[],
+  ): Promise<ReindexBatchResponse> => {
+    return request<ReindexBatchResponse>(
+      `/api/kb/${kbId}/documents/reindex-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc_ids: docIds.map((id) => Number(id)) }),
+      },
+    );
+  },
+
+  /** 切换单个文档的启用状态（toggle） */
+  toggleDocumentEnabled: async (
+    docId: string | number,
+  ): Promise<KnowledgeBaseFile> => {
+    const data = await request<DocumentOut>(
+      `/api/documents/${docId}/toggle-enabled`,
+      { method: 'POST' },
+    );
+    return mapDoc(data);
+  },
+
+  /** 批量将一批文档统一设为启用 / 禁用 */
+  toggleDocumentsEnabledBatch: async (
+    kbId: string | number,
+    docIds: (string | number)[],
+    enabled: boolean,
+  ): Promise<KnowledgeBaseFile[]> => {
+    const data = await request<DocumentOut[]>(
+      `/api/kb/${kbId}/documents/toggle-enabled`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doc_ids: docIds.map((id) => Number(id)),
+          enabled,
+        }),
+      },
+    );
+    return data.map(mapDoc);
+  },
+
+  /** 获取文档分片列表 */
+  fetchDocumentChunks: async (docId: string | number): Promise<DocumentChunk[]> => {
+    const data = await request<ChunkOut[]>(`/api/documents/${docId}/chunks`);
+    return data.map((c) => ({
+      id: c.id,
+      docId: c.doc_id,
+      kbId: c.kb_id,
+      content: c.content,
+      tokenCount: c.token_count,
+      parentChunkId: c.parent_chunk_id,
+      parentContent: c.parent_content,
+      createdAt: formatDate(c.created_at),
+    }));
   },
 
   /** RAG 问答 */
@@ -440,8 +616,107 @@ export const api = {
     return mapPlugin(result);
   },
 
+  /** 设为当前生效的 Embedding provider（与 LLM 激活独立） */
+  activatePluginEmbedding: async (name: string): Promise<Plugin> => {
+    const result = await request<PluginOut>(
+      `/api/plugins/${name}/activate-embedding`,
+      { method: 'POST' },
+    );
+    return mapPlugin(result);
+  },
+
   /** 卸载插件（builtin 仅 reset，uploaded 彻底删除） */
   deletePlugin: async (name: string): Promise<void> => {
     await request<void>(`/api/plugins/${name}`, { method: 'DELETE' });
+  },
+
+  // ========== 技能管理 ==========
+  /** 技能列表 */
+  listSkills: async (): Promise<SkillOut[]> => {
+    return request<SkillOut[]>('/api/skills');
+  },
+
+  /** 粘贴 Markdown 内容创建技能 */
+  createSkill: async (name: string, content: string, description?: string): Promise<SkillOut> => {
+    return request<SkillOut>('/api/skills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content, description: description ?? '' }),
+    });
+  },
+
+  /** 上传 .md 文件创建技能 */
+  uploadSkillFile: async (file: File): Promise<SkillOut> => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<SkillOut>('/api/skills/upload', {
+      method: 'POST',
+      body: form,
+    });
+  },
+
+  /** 更新技能 */
+  updateSkill: async (id: number, data: { name?: string; content?: string }): Promise<SkillOut> => {
+    return request<SkillOut>(`/api/skills/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 删除技能 */
+  deleteSkill: async (id: number): Promise<void> => {
+    await request<void>(`/api/skills/${id}`, { method: 'DELETE' });
+  },
+
+  // ========== 应用管理 (Studio) ==========
+  listApps: async (all?: boolean): Promise<App[]> => {
+    const url = all ? '/api/apps?all=true' : '/api/apps';
+    const data = await request<AppOut[]>(url);
+    return data.map(mapApp);
+  },
+
+  createApp: async (payload: { name: string; icon?: string; description?: string }): Promise<App> => {
+    const data = await request<AppOut>('/api/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return mapApp(data);
+  },
+
+  getApp: async (id: number): Promise<App> => {
+    const data = await request<AppOut>(`/api/apps/${id}`);
+    return mapApp(data);
+  },
+
+  updateApp: async (id: number, data: { name?: string; icon?: string; description?: string; config_json?: string }): Promise<App> => {
+    const result = await request<AppOut>(`/api/apps/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return mapApp(result);
+  },
+
+  deleteApp: async (id: number): Promise<void> => {
+    await request<void>(`/api/apps/${id}`, { method: 'DELETE' });
+  },
+
+  toggleAppStatus: async (id: number): Promise<App> => {
+    const result = await request<AppOut>(`/api/apps/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'published' }),
+    });
+    return mapApp(result);
+  },
+
+  chatWithApp: async (appId: number, question: string): Promise<ChatAppResponse> => {
+    return request<ChatAppResponse>(`/api/apps/${appId}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
   },
 };

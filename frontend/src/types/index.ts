@@ -43,6 +43,12 @@ export interface KnowledgeBaseFile {
   size: string;
   type: string;
   uploadedAt: string;
+  /** 后端 documents.status：ready | indexing | error */
+  status?: string;
+  /** 后端 documents.chunk_count，用于"是否已分片"判断 */
+  chunkCount?: number;
+  /** 是否参与 RAG 检索；false = 已禁用 */
+  enabled?: boolean;
 }
 
 export interface KnowledgeBase {
@@ -57,8 +63,40 @@ export interface KnowledgeBase {
   chunkCount?: number;
   status?: string;
   embeddingModel?: string;
+  chunkMethod?: ChunkMethod;
+  chunkSize?: number;
+  chunkOverlap?: number;
   ownerId?: number;
   ownerUsername?: string;
+}
+
+/** 文档分段方法 */
+export type ChunkMethod =
+  | 'general_auto'      // 通用-自动
+  | 'general_custom'    // 通用-自定义
+  | 'markdown_header'   // Markdown 标题分段
+  | 'parent_child';     // 父子分段
+
+/** 创建知识库时的可选切割参数 */
+export interface KbCreatePayload {
+  name: string;
+  description: string;
+  chunkMethod?: ChunkMethod;
+  chunkSize?: number;
+  chunkOverlap?: number;
+  separators?: string[];
+  parentChunkSize?: number;
+}
+
+export interface DocumentChunk {
+  id: number;
+  docId: number;
+  kbId: number;
+  content: string;
+  tokenCount: number;
+  parentChunkId: number | null;
+  parentContent: string | null;
+  createdAt: string;
 }
 
 export interface User {
@@ -78,11 +116,39 @@ export interface Plugin {
   modulePath: string;
   installed: boolean;
   isActive: boolean;
+  isEmbeddingActive: boolean;
   baseUrl: string;
   apiKeySet: boolean;
   llmModel: string;
   embeddingModel: string;
   error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  content: string;
+  filename: string;
+  ownerId: number;
+  ownerUsername?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface App {
+  id: number;
+  name: string;
+  icon: string;
+  description: string;
+  type: string;
+  category: string;
+  status: 'draft' | 'published';
+  configJson: string;
+  ownerId: number;
+  ownerUsername?: string;
   createdAt: string;
   updatedAt: string;
 }
