@@ -12,6 +12,20 @@
   display: grid;
   grid-template-columns: 240px 1fr 280px;
   min-height: 0;
+  overflow: hidden;
+  transition: grid-template-columns 0.2s ease;
+}
+
+.layout > * {
+  min-width: 0;
+}
+
+.layout.sidebar-hidden {
+  grid-template-columns: 0 1fr 280px;
+}
+
+.layout.rightbar-hidden {
+  grid-template-columns: 240px 1fr 0;
 }
 
 /* 平板适配 */

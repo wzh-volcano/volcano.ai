@@ -77,7 +77,7 @@ const ProgressPanel: React.FC = () => {
 
 export const Rightbar: React.FC = () => {
   return (
-    <aside className="bg-[#16191d] border-l border-border p-3.5 overflow-y-auto flex flex-col gap-3.5">
+    <aside className="bg-bg-2 border-l border-border p-3.5 overflow-y-auto flex flex-col gap-3.5">
       <GitPanel />
       <GoalPanel />
       <ProgressPanel />

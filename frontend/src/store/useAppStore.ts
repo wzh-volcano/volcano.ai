@@ -1,8 +1,12 @@
 import { create } from 'zustand';
-import type { TaskGroup, Message, ProgressItem, GitChange, KnowledgeBase, KnowledgeBaseFile } from '@/types';
-import { api } from '@/lib/api';
+import type { TaskGroup, Message, ProgressItem, GitChange, KnowledgeBase, KnowledgeBaseFile, KbCreatePayload } from '@/types';
+import { api, type ReindexBatchResponse } from '@/lib/api';
 
 interface AppState {
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
+  rightbarOpen: boolean;
+  toggleRightbar: () => void;
   taskGroups: TaskGroup[];
   messages: Message[];
   progressItems: ProgressItem[];
@@ -16,12 +20,17 @@ interface AppState {
   kbError: string | null;
   setActiveTask: (groupIndex: number, taskIndex: number) => void;
   loadKnowledgeBases: () => Promise<void>;
-  createKnowledgeBase: (name: string, description: string) => Promise<void>;
+  createKnowledgeBase: (payload: KbCreatePayload) => Promise<void>;
   updateKnowledgeBase: (id: string, data: Partial<Pick<KnowledgeBase, 'name' | 'description'>>) => void;
   deleteKnowledgeBase: (id: string) => Promise<void>;
   loadFiles: (kbId: string) => Promise<void>;
   uploadFiles: (kbId: string, files: File[]) => Promise<void>;
+  uploadTextDocument: (kbId: string, payload: { title: string; content: string; file_type?: 'md' | 'txt' }) => Promise<void>;
   removeFileFromKnowledgeBase: (kbId: string, fileId: string) => Promise<void>;
+  reindexDocument: (kbId: string, fileId: string) => Promise<void>;
+  reindexDocuments: (kbId: string, fileIds: string[]) => Promise<ReindexBatchResponse>;
+  toggleDocumentEnabled: (kbId: string, fileId: string) => Promise<void>;
+  toggleDocumentsEnabled: (kbId: string, fileIds: string[], enabled: boolean) => Promise<void>;
   // 旧接口保留兼容（本地即时更新，不调后端）
   addFileToKnowledgeBase: (kbId: string, file: KnowledgeBaseFile) => void;
 }
@@ -29,6 +38,10 @@ interface AppState {
 const now = () => new Date().toLocaleString('zh-CN');
 
 export const useAppStore = create<AppState>((set) => ({
+  sidebarOpen: true,
+  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  rightbarOpen: true,
+  toggleRightbar: () => set((state) => ({ rightbarOpen: !state.rightbarOpen })),
   taskGroups: [
     {
       title: 'gomoku-ai',
@@ -214,19 +227,22 @@ export const useAppStore = create<AppState>((set) => ({
       return { taskGroups: groups };
     });
   },
-  createKnowledgeBase: async (name: string, description: string) => {
+  createKnowledgeBase: async (payload: KbCreatePayload) => {
     try {
-      const created = await api.createKb(name, description);
+      const created = await api.createKb(payload);
       set((state) => ({ knowledgeBases: [created, ...state.knowledgeBases], kbError: null }));
     } catch (e) {
       // 后端不可用时回退到本地
       const newKb: KnowledgeBase = {
         id: `local-${Date.now()}`,
-        name,
-        description,
+        name: payload.name,
+        description: payload.description,
         createdAt: now(),
         updatedAt: now(),
         files: [],
+        chunkMethod: payload.chunkMethod ?? 'general_auto',
+        chunkSize: payload.chunkSize,
+        chunkOverlap: payload.chunkOverlap,
       };
       set((state) => ({
         knowledgeBases: [newKb, ...state.knowledgeBases],
@@ -274,6 +290,15 @@ export const useAppStore = create<AppState>((set) => ({
       throw e;
     }
   },
+  uploadTextDocument: async (kbId, payload) => {
+    try {
+      await api.uploadTextDocument(kbId, payload);
+      await useAppStore.getState().loadFiles(kbId);
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  },
   addFileToKnowledgeBase: (kbId: string, file: KnowledgeBaseFile) => {
     set((state) => ({
       knowledgeBases: state.knowledgeBases.map((kb) =>
@@ -297,6 +322,57 @@ export const useAppStore = create<AppState>((set) => ({
     } catch (e) {
       // 失败回滚
       set({ knowledgeBases: previous, kbError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+  reindexDocument: async (kbId: string, fileId: string) => {
+    try {
+      await api.reindexDocument(fileId);
+      await useAppStore.getState().loadFiles(kbId);
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  },
+  reindexDocuments: async (kbId: string, fileIds: string[]) => {
+    try {
+      const resp = await api.reindexDocumentsBatch(kbId, fileIds);
+      await useAppStore.getState().loadFiles(kbId);
+      return resp;
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  },
+  toggleDocumentEnabled: async (kbId: string, fileId: string) => {
+    // 乐观更新：先翻转本地，请求失败再回滚
+    const previous = useAppStore.getState().knowledgeBases;
+    set((state) => ({
+      knowledgeBases: state.knowledgeBases.map((kb) =>
+        kb.id === kbId
+          ? {
+              ...kb,
+              files: kb.files.map((f) =>
+                f.id === fileId ? { ...f, enabled: !(f.enabled ?? true) } : f,
+              ),
+            }
+          : kb
+      ),
+    }));
+    try {
+      await api.toggleDocumentEnabled(fileId);
+      await useAppStore.getState().loadFiles(kbId);
+    } catch (e) {
+      set({ knowledgeBases: previous, kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
+  },
+  toggleDocumentsEnabled: async (kbId: string, fileIds: string[], enabled: boolean) => {
+    try {
+      await api.toggleDocumentsEnabledBatch(kbId, fileIds, enabled);
+      await useAppStore.getState().loadFiles(kbId);
+    } catch (e) {
+      set({ kbError: e instanceof Error ? e.message : String(e) });
+      throw e;
     }
   },
 }));

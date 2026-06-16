@@ -24,7 +24,7 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import type { KnowledgeBase } from '@/types';
+import type { KbCreatePayload, KnowledgeBase } from '@/types';
 
 const PAGE_SIZE = 8;
 
@@ -70,19 +70,19 @@ export const KnowledgeBasePage: React.FC = () => {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, safePage]);
 
-  const handleCreate = async (name: string, description: string) => {
+  const handleCreate = async (payload: KbCreatePayload) => {
     setSubmitting(true);
     try {
-      await createKnowledgeBase(name, description);
+      await createKnowledgeBase(payload);
       setCurrentPage(1);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleEdit = (name: string, description: string) => {
+  const handleEdit = (payload: KbCreatePayload) => {
     if (editingKb) {
-      updateKnowledgeBase(editingKb.id, { name, description });
+      updateKnowledgeBase(editingKb.id, { name: payload.name, description: payload.description });
       setEditingKb(undefined);
     }
   };

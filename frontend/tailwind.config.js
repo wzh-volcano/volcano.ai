@@ -9,28 +9,28 @@ export default {
     extend: {
       colors: {
         bg: {
-          DEFAULT: '#1a1d22',
-          2: '#20242a',
-          3: '#262b32',
-          hover: '#2c323a',
-          active: '#323942',
+          DEFAULT: 'var(--bg)',
+          2: 'var(--bg-2)',
+          3: 'var(--bg-3)',
+          hover: 'var(--bg-hover)',
+          active: 'var(--bg-active)',
         },
         border: {
-          DEFAULT: '#2e343c',
-          strong: '#3a4049',
+          DEFAULT: 'var(--border)',
+          strong: 'var(--border-strong)',
         },
         text: {
-          DEFAULT: '#d7dde5',
-          dim: '#8a92a0',
-          mute: '#5f6773',
+          DEFAULT: 'var(--text)',
+          dim: 'var(--text-dim)',
+          mute: 'var(--text-mute)',
         },
         accent: {
-          DEFAULT: '#4a90ff',
-          2: '#5b8cff',
+          DEFAULT: 'var(--accent)',
+          2: 'var(--accent-2)',
         },
-        success: '#3ec78c',
-        error: '#ff6b6b',
-        warning: '#f5b740',
+        success: 'var(--green)',
+        error: 'var(--red)',
+        warning: 'var(--yellow)',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', '"PingFang SC"', '"Microsoft YaHei"', '"Segoe UI"', 'sans-serif'],

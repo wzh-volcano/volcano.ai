@@ -4,6 +4,8 @@
 - 普通用户只能看到/操作自己创建的知识库（owner_id == current_user.id）
 - 管理员可以看到/操作所有知识库
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +29,7 @@ def _to_out(kb: KnowledgeBase) -> dict:
         "visibility": kb.visibility,
         "provider": kb.provider,
         "embedding_model": kb.embedding_model,
+        "chunk_method": kb.chunk_method or "general_auto",
         "chunk_size": kb.chunk_size,
         "chunk_overlap": kb.chunk_overlap,
         "doc_count": kb.doc_count,
@@ -66,6 +69,7 @@ def create_kb(
         visibility=payload.visibility,
         provider=provider.name(),
         embedding_model=payload.embedding_model or settings.embedding_model,
+        chunk_method=payload.chunk_method,
         chunk_size=payload.chunk_size,
         chunk_overlap=payload.chunk_overlap,
         doc_count=0,
@@ -73,6 +77,14 @@ def create_kb(
         status="ready",
         owner_id=current_user.id,
     )
+    # 将 separators / parent_chunk_size 存入 extra_json
+    extra: dict = {}
+    if payload.separators:
+        extra["separators"] = payload.separators
+    if payload.parent_chunk_size:
+        extra["parent_chunk_size"] = payload.parent_chunk_size
+    if extra:
+        kb.extra_json = json.dumps(extra, ensure_ascii=False)
     db.add(kb)
     db.commit()
     db.refresh(kb)

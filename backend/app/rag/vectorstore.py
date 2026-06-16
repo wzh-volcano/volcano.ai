@@ -13,7 +13,7 @@ from langchain_core.embeddings import Embeddings
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Chunk
+from ..models import Chunk, Document
 
 
 # ---------- 序列化 / 反序列化 ----------
@@ -62,13 +62,22 @@ def search(
     query: str,
     embeddings_model: Embeddings,
     top_k: int = 4,
+    chunk_method: str | None = None,
 ) -> list[tuple[Chunk, float]]:
-    """检索与 query 最相似的 top_k 个 chunk，返回 (chunk, score) 列表。"""
+    """检索与 query 最相似的 top_k 个 chunk，返回 (chunk, score) 列表。
+
+    父子分段模式（chunk_method == "parent_child"）下：
+    - 仅对子块做相似度匹配
+    - 返回时，若子块有 parent_content 则用 parent_content 替换 content 用于上下文展示
+    """
     chunks = list(
         db.scalars(
-            select(Chunk).where(
+            select(Chunk)
+            .join(Document, Chunk.doc_id == Document.id)
+            .where(
                 Chunk.kb_id == kb_id,
                 Chunk.embedding.is_not(None),
+                Document.enabled.is_(True),  # 只检索启用的文档
             )
         )
     )
@@ -87,4 +96,32 @@ def search(
     scores = m_norm @ q_norm  # 余弦相似度
     top_idx = np.argsort(scores)[-top_k:][::-1]
 
-    return [(chunks[i], float(scores[i])) for i in top_idx]
+    results = [(chunks[i], float(scores[i])) for i in top_idx]
+
+    # 父子分段模式：命中子块时，用 parent_content 替换展示内容
+    if chunk_method == "parent_child":
+        enriched = []
+        seen_parents = set()
+        for chunk, score in results:
+            if chunk.parent_content:
+                # 创建一个包装后的结果，content 使用父块完整内容
+                enriched.append((chunk, score, chunk.parent_content))
+            elif chunk.parent_chunk_id and chunk.parent_chunk_id not in seen_parents:
+                # 跳过父块本身在结果中重复出现（子块已携带父内容）
+                seen_parents.add(chunk.parent_chunk_id)
+                enriched.append((chunk, score, chunk.content))
+            else:
+                enriched.append((chunk, score, chunk.content))
+        # 返回兼容格式：替换 content 为父内容
+        return [
+            (_replace_content(c, parent_content), s)
+            for c, s, parent_content in enriched
+        ]
+
+    return results
+
+
+def _replace_content(chunk: Chunk, new_content: str) -> Chunk:
+    """返回一个 content 被替换的 chunk（不修改原对象）。"""
+    chunk.content = new_content
+    return chunk

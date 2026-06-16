@@ -6,6 +6,7 @@ from .base import Provider
 from .registry import (
     available_providers,
     get_current,
+    get_current_embedding,
     get_current_legacy,
     get_provider,
     list_provider_names,
@@ -19,6 +20,7 @@ __all__ = [
     "Provider",
     "available_providers",
     "get_current",
+    "get_current_embedding",
     "get_current_legacy",
     "get_provider",
     "list_provider_names",

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import KnowledgeBase
-from ..providers import get_current
+from ..providers import get_current, get_current_embedding
 from . import vectorstore
 
 # 提示模板：强约束「仅依据上下文回答，否则承认不知道」
@@ -36,16 +36,17 @@ def answer_question(
     db: Session, kb: KnowledgeBase, question: str, top_k: int | None = None
 ) -> dict:
     provider = get_current(db)
-    embeddings = provider.get_embeddings()
+    embeddings = get_current_embedding(db).get_embeddings()
     llm = provider.get_llm()
 
-    # 1. 检索
+    # 1. 检索（传入 chunk_method 以支持父子分段模式）
     retrieved = vectorstore.search(
         db,
         kb_id=kb.id,
         query=question,
         embeddings_model=embeddings,
         top_k=top_k or settings.default_top_k,
+        chunk_method=kb.chunk_method,
     )
 
     # 2. 组装 prompt

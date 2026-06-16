@@ -4,7 +4,8 @@ Python + FastAPI + SQLite + LangChain 构建的 RAG 系统，支持**插件化**
 
 ## 特性
 
-- **插件化 Provider**：根据安装的依赖自动启用厂商。底座走 OpenAI 兼容协议，支持智谱 GLM / DeepSeek / Moonshot / OpenAI / 自建代理；可选安装 Ollama 走本地模型。
+- **插件化 Provider**：根据安装的依赖自动启用厂商。底座走 OpenAI 兼容协议，支持智谱 GLM / DeepSeek / Moonshot / OpenAI / 自建代理；可选安装 Ollama 走本地模型。支持多 LLM 同时激活。
+- **工作室 (Studio)**：应用管理模块，每个应用可独立配置 Provider/模型/技能/知识库/提示词，支持 SSE 流式预览。
 - **纯 SQLite 向量存储**：embedding 以 BLOB 存表，numpy 余弦检索，零 native 依赖。
 - **文档入库**：支持 PDF / Word / Markdown / TXT / CSV / HTML。
 - **RESTful API**：知识库 CRUD、文档上传/删除、RAG 问答。
@@ -59,6 +60,14 @@ EMBEDDING_MODEL=embedding-3
 | GET | `/api/kb/{id}/documents` | 文档列表 |
 | DELETE | `/api/documents/{id}` | 删除文档 |
 | POST | `/api/kb/{id}/chat` | RAG 问答，返回 `{answer, sources[]}` |
+| GET | `/api/apps` | 应用列表（admin 加 `?all=true` 看全部） |
+| POST | `/api/apps` | 创建应用 |
+| GET | `/api/apps/{id}` | 应用详情 |
+| PATCH | `/api/apps/{id}` | 更新应用配置 |
+| DELETE | `/api/apps/{id}` | 删除应用 |
+| PATCH | `/api/apps/{id}/status` | 切换 draft/published |
+| POST | `/api/apps/{id}/chat` | 应用聊天测试（支持 `?stream=true` SSE 流式） |
+| GET | `/api/plugins/active-models` | 已安装已激活 provider 的模型列表 |
 
 ### 示例：上传文档并提问
 
@@ -87,9 +96,9 @@ backend/
 │   ├── main.py            # FastAPI 入口
 │   ├── config.py          # .env 配置
 │   ├── database.py        # SQLAlchemy 引擎/会话
-│   ├── models.py          # ORM: KnowledgeBase / Document / Chunk
+│   ├── models.py          # ORM: KnowledgeBase / Document / Chunk / Skill / ProviderConfig / App
 │   ├── schemas.py         # Pydantic 入参/出参
-│   ├── routers/           # providers / knowledge_bases / documents / chat
+│   ├── routers/           # providers / knowledge_bases / documents / chat / auth / users / plugins / skills / apps
 │   ├── providers/         # ★ 插件系统: base / registry / zhipu / openai_like / ollama
 │   ├── rag/               # loader / splitter / vectorstore(纯 SQLite) / chain
 │   └── services/          # kb_service: 文档入库流水线

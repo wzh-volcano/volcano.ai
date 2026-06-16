@@ -40,7 +40,7 @@ const ActionTag: React.FC<{ action: NonNullable<import('@/types').Message['actio
         {iconMap[action.type]} {action.label}
       </span>
       {action.code && (
-        <code className="bg-bg-3 px-2 py-0.5 rounded border border-border text-[#c5cdd6]">
+          <code className="bg-bg-3 px-2 py-0.5 rounded border border-border text-text-dim">
           {action.code}
         </code>
       )}
@@ -76,10 +76,10 @@ export const MainContent: React.FC = () => {
               </div>
             )}
             {msg.type === 'text' && msg.content && (
-              <p className="text-[13.5px] text-[#c8cfd8] leading-relaxed my-3.5">
+              <p className="text-[13.5px] text-text-dim leading-relaxed my-3.5">
                 {msg.content.split(/(`[^`]+`)/).map((part, i) =>
                   part.startsWith('`') && part.endsWith('`') ? (
-                    <code key={i} className="inline text-xs bg-[#2a2f37] px-1.5 py-px rounded text-[#c5cdd6]">
+                    <code key={i} className="inline text-xs bg-bg-3 px-1.5 py-px rounded text-text-dim">
                       {part.slice(1, -1)}
                     </code>
                   ) : (
@@ -122,7 +122,7 @@ export const MainContent: React.FC = () => {
               <Zap size={14} />
               <span>最大</span>
             </Chip>
-            <button className="w-[30px] h-[30px] rounded-full bg-[#3a3f48] text-white inline-flex items-center justify-center text-sm transition-colors duration-150 hover:bg-accent">
+            <button className="w-[30px] h-[30px] rounded-full bg-bg-hover text-text inline-flex items-center justify-center text-sm transition-colors duration-150 hover:bg-accent">
               <ArrowUp size={16} />
             </button>
           </div>

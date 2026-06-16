@@ -8,10 +8,94 @@ base_url / api_key / model。
 """
 from __future__ import annotations
 
+import logging
+from typing import List
+
+import httpx
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class _SimpleOpenAIEmbeddings(Embeddings):
+    """极简 OpenAI/DashScope 兼容 embeddings 客户端。
+
+    绕开 langchain-openai 的 tiktoken 预切分逻辑，
+    直接 POST {"model": ..., "input": [str, ...]}。
+    通义百炼 / 智谱 / DeepSeek / OpenAI 官方均接受这种 payload。
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        batch_size: int = 10,
+        timeout: float = 60.0,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self.batch_size = batch_size
+        self.timeout = timeout
+
+    def _post(self, inputs: List[str]) -> List[List[float]]:
+        url = f"{self.base_url}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {"model": self.model, "input": inputs}
+
+        # 关键日志：实际发送的 url / model / 第一条文本前 80 字符
+        first_preview = (inputs[0][:80] + "…") if inputs else ""
+        logger.info(
+            "[embed] POST %s model=%s n=%d first=%r",
+            url,
+            self.model,
+            len(inputs),
+            first_preview,
+        )
+        # 类型断言，绝对保证 input 是 list[str]
+        assert isinstance(inputs, list) and all(
+            isinstance(x, str) for x in inputs
+        ), f"inputs must be list[str], got {type(inputs)} containing {[type(x).__name__ for x in inputs[:3]]}"
+
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.post(url, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            # 把厂商原始错误抛上去，便于前端显示 + 同时打印我们的请求摘要
+            logger.error(
+                "[embed] %s returned %d. our payload: model=%s input.type=list[str] len=%d",
+                url,
+                resp.status_code,
+                self.model,
+                len(inputs),
+            )
+            raise RuntimeError(
+                f"Error code: {resp.status_code} - {resp.text}"
+            )
+        data = resp.json()
+        items = data.get("data") or []
+        items.sort(key=lambda r: r.get("index", 0))
+        return [item["embedding"] for item in items]
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        results: List[List[float]] = []
+        # 防御：空串会让百炼报另一种错误，过滤掉
+        clean = [t if (t and t.strip()) else " " for t in texts]
+        for i in range(0, len(clean), self.batch_size):
+            batch = clean[i : i + self.batch_size]
+            results.extend(self._post(batch))
+        return results
+
+    def embed_query(self, text: str) -> List[float]:
+        text = text if (text and text.strip()) else " "
+        return self._post([text])[0]
 
 
 class OpenAILikeProvider:
@@ -79,12 +163,27 @@ class OpenAILikeProvider:
         )
 
     def get_embeddings(self) -> Embeddings:
-        from langchain_openai import OpenAIEmbeddings
-
-        return OpenAIEmbeddings(
-            model=self.embedding_model(),
+        # 用自前实现的极简客户端，确保 input 永远是 list[str]，
+        # 兼容通义千问百炼 / 智谱 / DeepSeek / OpenAI 官方。
+        model_name = self.embedding_model() or ""
+        if "multimodal" in model_name.lower():
+            raise RuntimeError(
+                f"embedding_model='{model_name}' 看起来是多模态模型，"
+                "DashScope 多模态 embedding 接口需要 input.contents 结构，"
+                "本系统只支持纯文本 embedding。请改用 text-embedding-v3 / "
+                "text-embedding-v2 / text-embedding-v1 等纯文本模型。"
+            )
+        logger.info(
+            "[provider %s] build embeddings: base_url=%s model=%s (SimpleOpenAIEmbeddings)",
+            self.name(),
+            self.base_url(),
+            model_name,
+        )
+        return _SimpleOpenAIEmbeddings(
             base_url=self.base_url(),
             api_key=self.api_key(),
+            model=model_name,
+            batch_size=10,
         )
 
     # ---- 模型列表（可选能力，供前端「拉取模型列表」按钮）----

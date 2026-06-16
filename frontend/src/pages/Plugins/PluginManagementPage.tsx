@@ -213,6 +213,16 @@ export const PluginManagementPage: React.FC = () => {
     }
   };
 
+  const handleActivateEmbedding = async (p: Plugin) => {
+    try {
+      await api.activatePluginEmbedding(p.name);
+      await loadPlugins();
+      flash(`${p.label} 已设为当前 Embedding 厂商`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '激活失败');
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -396,12 +406,18 @@ export const PluginManagementPage: React.FC = () => {
                             <Puzzle size={14} />
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-text font-medium">{p.label}</span>
                               {p.isActive && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-accent/15 text-accent">
                                   <CheckCircle2 size={10} />
-                                  当前生效
+                                  当前 LLM
+                                </span>
+                              )}
+                              {p.isEmbeddingActive && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-info/15 text-info">
+                                  <CheckCircle2 size={10} />
+                                  当前 Embedding
                                 </span>
                               )}
                             </div>
@@ -474,9 +490,22 @@ export const PluginManagementPage: React.FC = () => {
                               variant="ghost"
                               className="h-7 px-2 text-xs gap-1"
                               onClick={() => handleActivate(p)}
+                              title="设为当前 LLM"
                             >
                               <Power size={12} />
-                              激活
+                              LLM
+                            </Button>
+                          )}
+                          {!p.isEmbeddingActive && p.installed && !p.error && p.embeddingModel && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => handleActivateEmbedding(p)}
+                              title="设为当前 Embedding"
+                            >
+                              <Power size={12} />
+                              Embed
                             </Button>
                           )}
                           {!p.installed && !p.error && (
@@ -504,7 +533,13 @@ export const PluginManagementPage: React.FC = () => {
                               {!p.isActive && p.installed && !p.error && (
                                 <DropdownMenuItem onClick={() => handleActivate(p)}>
                                   <Power size={14} />
-                                  激活
+                                  设为当前 LLM
+                                </DropdownMenuItem>
+                              )}
+                              {!p.isEmbeddingActive && p.installed && !p.error && p.embeddingModel && (
+                                <DropdownMenuItem onClick={() => handleActivateEmbedding(p)}>
+                                  <Power size={14} />
+                                  设为当前 Embedding
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />

@@ -1,8 +1,10 @@
-# 模型插件开发规范（v1）
+# 模型插件开发规范（v1.1）
 
 本规范定义在 **volcano.ai** 平台中开发**模型类**插件（`category="model"`）所需遵循的目录结构、清单字段、Provider 类接口与发布流程。
 
 > 当前 `category` 取值仅规范化了 `"model"`（模型厂商，提供 LLM / Embedding 能力），其它分类待业务确定后另行扩展。
+
+> **v1.1 变更摘要**：LLM 与 Embedding 现在**独立激活**（`is_active` / `is_embedding_active`）；新增 §4.7「Embedding 兼容性」一节解决 DashScope 等厂商的 token-id 协议冲突。
 
 ---
 
@@ -10,9 +12,13 @@
 
 - **插件 = Provider 类 + DB 配置行**。
   插件代码由开发者打包；运行时配置（`base_url` / `api_key` / `llm_model` / `embedding_model` 等）保存在 `provider_configs` 表，由管理员在前端「插件管理」页面填写。
-- **内置（builtin）**：随后端代码一起发布，例如 `zhipu` / `openai_like` / `ollama`。
+- **内置（builtin）**：随后端代码一起发布，例如 `zhipu` / `openai_like` / `ollama` / `deepseek` / `qwen`。
 - **上传（uploaded）**：管理员通过「上传 zip」或「URL 导入」安装，解压到 `backend/data/plugins/<name>/`，启动时自动扫描注册。
-- **唯一激活**：全局只有一个 provider 可处于 `is_active=True`，所有 LLM/Embedding 调用都走它。
+- **激活分轴**：平台对每个插件维护两个独立的激活标记：
+  - `is_active` —— 当前生效的 **LLM** provider（用于对话生成，调用 `get_llm()`）。
+  - `is_embedding_active` —— 当前生效的 **Embedding** provider（用于 RAG 索引与检索时的向量化，调用 `get_embeddings()`）。
+
+  二者各自全局唯一，但**互不干扰**：你可以让 DeepSeek 提供 LLM、智谱提供 Embedding；也可以两者都指向同一个插件。如果某插件只想做 Embedding（如某些只提供 embedding 接口的厂商），`get_llm()` 可抛 `NotImplementedError`，反之亦然。
 
 ---
 
@@ -162,6 +168,64 @@ def list_models(self) -> list[str]:
     return sorted({it["id"] for it in items if isinstance(it, dict) and it.get("id")})
 ```
 
+### 4.7 Embedding 兼容性（重要）
+
+并不是所有「OpenAI 兼容」的厂商都真的兼容 `langchain-openai` 默认配置。**`OpenAIEmbeddings` 在没有显式禁用 `check_embedding_ctx_length` 时，会用 `tiktoken` 把文本切成 token-id 列表（`list[int]`）再发到 `/embeddings` 接口的 `input` 字段**。这会触发以下问题：
+
+- **DashScope（阿里 Qwen `text-embedding-v3` / `v4`）** 的多模态 embedding 端点拒绝 token-id 输入，返回 `input.contents is neither str nor list of str`，整批 RAG 索引失败。
+- 部分代理网关（含某些 OneAPI 部署）也会按字符串透传，token-id 列表导致 422。
+
+**两种解决方案，按厂商情况选用：**
+
+#### 方案 A：关闭 token 切分（推荐，仍能用 langchain-openai）
+
+```python
+def get_embeddings(self) -> Embeddings:
+    from langchain_openai import OpenAIEmbeddings
+    return OpenAIEmbeddings(
+        model=self.embedding_model(),
+        base_url=self.base_url(),
+        api_key=self.api_key(),
+        check_embedding_ctx_length=False,  # ← 关键：保留原始字符串
+    )
+```
+
+适用：DeepSeek、智谱、Moonshot 等接口语义和 OpenAI 一致、只是不喜欢 token-id 的厂商。
+
+#### 方案 B：自写薄壳直连厂商 HTTP 接口
+
+如果厂商根本没遵循 `/v1/embeddings` 的请求/响应结构（例如阿里 DashScope 的 `services/embeddings/text-embedding/text-embedding`），就别再绕 langchain-openai，直接 `httpx` 一把：
+
+```python
+class _QwenEmbeddings(Embeddings):
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
+        self._model = model
+
+    def _post(self, texts: list[str]) -> list[list[float]]:
+        import httpx
+        resp = httpx.post(
+            f"{self._base_url}/embeddings",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json={"model": self._model, "input": texts, "encoding_format": "float"},
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return [item["embedding"] for item in data]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._post(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._post([text])[0]
+```
+
+参考实现见 `backend/app/providers/qwen.py` 的 `_QwenTextEmbeddings`。
+
+> **如何判断要走哪种方案？** 接入新厂商时，先用方案 A 跑一次「知识库索引」，若日志里出现 `input.contents is neither str nor list of str` 之类协议级错误，再切换方案 B。仅做 LLM 不做 Embedding 时，可让 `get_embeddings()` 抛 `NotImplementedError`，平台不会强行调用——只是该插件不能被设为 `is_embedding_active`。
+
 ---
 
 ## 5. 最小 Provider 示例
@@ -258,9 +322,9 @@ zip -r my_plugin-0.1.0.zip manifest.json provider.py README.md
 1. 后端在 `data/plugins/<name>/` 解压（带 zip-slip 防护）。
 2. 校验 `manifest.json`，把插件目录加入 `sys.path` 并 `import` 入口模块。
 3. 在 `provider_configs` 写一行（`source=uploaded`，`category` 取自清单，默认 `"model"`）。
-4. 管理员填写配置 → 点击「安装」（标记 `installed=True`） → 「激活」（设为唯一 `is_active=True`）。
+4. 管理员填写配置 → 点击「安装」（标记 `installed=True`） → 分别按需「激活 LLM」（设为唯一 `is_active=True`）和/或「激活 Embedding」（设为唯一 `is_embedding_active=True`）。两个激活轴互不影响，可以指向同一插件，也可以分别指向不同插件。
 
-> 卸载只对 `uploaded` 生效（删除文件 + 删除 DB 行）；`builtin` 插件只会被重置（清空 `api_key`、`installed`、`is_active`）。
+> 卸载只对 `uploaded` 生效（删除文件 + 删除 DB 行）；`builtin` 插件只会被重置（清空 `api_key`、`installed`、`is_active`、`is_embedding_active`）。
 
 ---
 
@@ -286,7 +350,10 @@ zip -r my_plugin-0.1.0.zip manifest.json provider.py README.md
 ## 9. FAQ
 
 **Q：能否多个插件同时启用？**
-A：不能。当前一次只允许一个 `is_active=True`；KB 索引与对话都走这一个。
+A：每个轴上各自全局唯一——LLM 轴只能有一个 `is_active=True`，Embedding 轴只能有一个 `is_embedding_active=True`，但**两个轴互相独立**。典型搭配：DeepSeek 当 LLM、智谱当 Embedding；或两者都指向同一个 OpenAI-like 插件。
+
+**Q：插件只想做 Embedding（或只做 LLM）该怎么办？**
+A：在不支持的那一面让方法抛 `NotImplementedError` 即可，平台只在被相应轴激活时才会调用对应方法。该插件就只能被设为对应轴的 `is_active` / `is_embedding_active`。
 
 **Q：可以在 `extra_json` 里放什么？**
 A：任何合法 JSON。Provider 类可以通过 `self._config["extra"]` 取到，常用于厂商专属参数（temperature 上限、自定义 header 等）。

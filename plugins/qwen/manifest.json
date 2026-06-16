@@ -1,0 +1,10 @@
+{
+  "name": "qwen",
+  "label": "千问百炼",
+  "category": "model",
+  "version": "1.0.0",
+  "entry": "qwen.provider:QwenProvider",
+  "requires": [
+    "langchain-openai>=0.2"
+  ]
+}
