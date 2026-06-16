@@ -149,7 +149,7 @@ def chat_with_app(
     payload: schemas.AppChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> dict:
+):
     """使用应用的配置进行聊天测试。从 app 的 config_json 读取模型/提示词/知识库。"""
     app = get_app_or_404(app_id, db, current_user)
     config = json.loads(app.config_json or "{}")

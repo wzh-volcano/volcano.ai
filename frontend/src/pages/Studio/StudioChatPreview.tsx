@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -75,9 +76,11 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
       const decoder = new TextDecoder();
       let buffer = '';
 
+      let streamDone = false;
+
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -91,7 +94,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
           const data = trimmed.slice(6);
           try {
             const parsed = JSON.parse(data);
-            if (parsed.done) break;
+            if (parsed.done) { streamDone = true; break; }
             if (parsed.token) {
               setMessages((prev) => {
                 const next = [...prev];
@@ -140,7 +143,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
               {msg.role === 'user' ? (
                 msg.content
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                   {msg.content || '…'}
                 </ReactMarkdown>
               )}
