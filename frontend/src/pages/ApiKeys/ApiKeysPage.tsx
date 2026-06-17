@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { KeyRound, Loader2, Copy, Check, Trash2, AlertCircle } from 'lucide-react';
+import { KeyRound, Loader2, Copy, Check, Trash2, AlertCircle, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -100,7 +100,7 @@ export const ApiKeysPage: React.FC = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-2xl space-y-6">
+        <div className="max-w-lg space-y-6">
 
           {/* 创建 */}
           <div className="flex gap-2">
@@ -169,7 +169,13 @@ export const ApiKeysPage: React.FC = () => {
                       <p className="text-xs text-text-dim font-mono">{key.key_prefix}...</p>
                       <p className="text-xs text-text-mute">
                         创建于 {new Date(key.created_at).toLocaleDateString()}
-                        {key.last_used_at ? ` · 最后使用 ${new Date(key.last_used_at).toLocaleDateString()}` : ' · 未使用'}
+                        {key.last_used_at
+                          ? ` · 最后使用 ${new Date(key.last_used_at).toLocaleString()}`
+                          : ' · 未使用'}
+                      </p>
+                      <p className="text-xs text-text-mute flex items-center gap-1 mt-0.5">
+                        <Activity size={11} />
+                        调用 {key.call_count} 次
                       </p>
                     </div>
                     <button

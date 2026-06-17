@@ -29,11 +29,6 @@ def init_db() -> None:
     _migrate_add_columns()
 
 
-def _remove_dropped_tables(conn) -> None:
-    """删除已被移除功能的表。"""
-    conn.execute("DROP TABLE IF EXISTS skills")
-
-
 def _migrate_add_columns() -> None:
     """对已有的 SQLite 数据库补充新增列（如果缺少的话）。"""
     import sqlite3
@@ -44,8 +39,6 @@ def _migrate_add_columns() -> None:
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-
-    _remove_dropped_tables(cursor)
 
     # knowledge_bases 新增 chunk_method 列
     _ensure_column(cursor, "knowledge_bases", "chunk_method", "VARCHAR(20) DEFAULT 'general_auto'")
@@ -67,11 +60,11 @@ def _migrate_add_columns() -> None:
     # documents 新增 enabled 列（是否参与 RAG 检索）
     _ensure_column(cursor, "documents", "enabled", "BOOLEAN DEFAULT 1")
 
+    # skills 新增 description 列
+    _ensure_column(cursor, "skills", "description", "VARCHAR(512) DEFAULT ''")
+
     # apps 新增 api_enabled 列
     _ensure_column(cursor, "apps", "api_enabled", "BOOLEAN DEFAULT 0")
-
-    # api_keys 新增 call_count 列
-    _ensure_column(cursor, "api_keys", "call_count", "INTEGER DEFAULT 0")
 
     # plugin_extensions 表
     _ensure_table(cursor, "plugin_extensions", """

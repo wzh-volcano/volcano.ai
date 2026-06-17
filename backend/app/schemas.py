@@ -136,6 +136,10 @@ class ChatResponse(BaseModel):
     sources: list[ChatSource]
 
 
+class ChunkUpdate(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
 # ---------- Auth / User ----------
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
@@ -163,6 +167,7 @@ class ApiKeyOut(BaseModel):
     key_prefix: str
     created_at: datetime
     last_used_at: datetime | None
+    call_count: int
 
     class Config:
         from_attributes = True
@@ -274,33 +279,6 @@ class ActiveModelOut(BaseModel):
     models: list[ModelInfo]
 
 
-# ---------- Skill ----------
-class SkillCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=256)
-    description: str = ""
-    content: str = Field(..., min_length=1)
-
-
-class SkillUpdate(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=256)
-    description: str | None = None
-    content: str | None = Field(None, min_length=1)
-
-
-class SkillOut(BaseModel):
-    id: int
-    name: str
-    description: str
-    content: str
-    filename: str
-    owner_id: int
-    owner_username: str | None = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 # ---------- App ----------
 class AppCreate(BaseModel):
@@ -348,6 +326,9 @@ class AppChatRequest(BaseModel):
     question: str = ""
     stream: bool = False
     messages: list[ChatMessage] | None = None
+
+class AppSimpleChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
 
 class AppCompressRequest(BaseModel):
     messages: list[ChatMessage]

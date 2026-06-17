@@ -15,7 +15,6 @@ interface Props {
     model: string;
     provider: string;
     prompt: string;
-    skill_ids: number[];
     kb_ids: number[];
     maxTokens?: number;
   };

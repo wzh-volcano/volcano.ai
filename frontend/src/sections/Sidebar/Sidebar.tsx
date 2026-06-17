@@ -24,7 +24,6 @@ import { Label } from '@/components/ui/label';
 import {
   Plus,
   Square,
-  Wand2,
   Library,
   LayoutGrid,
   Users,
@@ -100,10 +99,6 @@ export const Sidebar: React.FC = () => {
           <Square size={16} className="text-text-dim" />
           打开工作区
         </a>
-        <NavLink to="/skills" className={menuItemClass}>
-          <Wand2 size={16} className="text-text-dim" />
-          技能
-        </NavLink>
         <NavLink to="/knowledge-base" className={menuItemClass}>
           <Library size={16} className="text-text-dim" />
           知识库

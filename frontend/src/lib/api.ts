@@ -5,7 +5,6 @@
  * 后端 schema 见 backend/app/schemas.py。
  */
 import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
-
 // ---------- 后端返回类型 ----------
 export interface KbOut {
   id: number;
@@ -110,18 +109,6 @@ export interface PluginOut {
   embedding_model: string;
   extra_json: string | null;
   error: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SkillOut {
-  id: number;
-  name: string;
-  description: string;
-  content: string;
-  filename: string;
-  owner_id: number;
-  owner_username: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -456,6 +443,25 @@ export const api = {
     }));
   },
 
+  /** 更新分片内容 */
+  updateChunk: async (chunkId: number, content: string): Promise<DocumentChunk> => {
+    const c = await request<ChunkOut>(`/api/chunks/${chunkId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    return {
+      id: c.id,
+      docId: c.doc_id,
+      kbId: c.kb_id,
+      content: c.content,
+      tokenCount: c.token_count,
+      parentChunkId: c.parent_chunk_id,
+      parentContent: c.parent_content,
+      createdAt: formatDate(c.created_at),
+    };
+  },
+
   /** RAG 问答 */
   chat: async (kbId: string | number, question: string): Promise<ChatResponse> => {
     return request<ChatResponse>(`/api/kb/${kbId}/chat`, {
@@ -633,45 +639,6 @@ export const api = {
     await request<void>(`/api/plugins/${name}`, { method: 'DELETE' });
   },
 
-  // ========== 技能管理 ==========
-  /** 技能列表 */
-  listSkills: async (): Promise<SkillOut[]> => {
-    return request<SkillOut[]>('/api/skills');
-  },
-
-  /** 粘贴 Markdown 内容创建技能 */
-  createSkill: async (name: string, content: string, description?: string): Promise<SkillOut> => {
-    return request<SkillOut>('/api/skills', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, content, description: description ?? '' }),
-    });
-  },
-
-  /** 上传 .md 文件创建技能 */
-  uploadSkillFile: async (file: File): Promise<SkillOut> => {
-    const form = new FormData();
-    form.append('file', file);
-    return request<SkillOut>('/api/skills/upload', {
-      method: 'POST',
-      body: form,
-    });
-  },
-
-  /** 更新技能 */
-  updateSkill: async (id: number, data: { name?: string; content?: string }): Promise<SkillOut> => {
-    return request<SkillOut>(`/api/skills/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-  },
-
-  /** 删除技能 */
-  deleteSkill: async (id: number): Promise<void> => {
-    await request<void>(`/api/skills/${id}`, { method: 'DELETE' });
-  },
-
   // ========== 应用管理 (Studio) ==========
   listApps: async (all?: boolean): Promise<App[]> => {
     const url = all ? '/api/apps?all=true' : '/api/apps';
@@ -795,4 +762,5 @@ export const api = {
   deleteApiKey: async (keyId: number): Promise<void> => {
     await request<void>(`/api/auth/api-keys/${keyId}`, { method: 'DELETE' });
   },
+
 };

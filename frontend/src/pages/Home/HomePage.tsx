@@ -61,7 +61,7 @@ const ActionTag: React.FC<{ action: NonNullable<import('@/types').Message['actio
   );
 };
 
-export const MainContent: React.FC = () => {
+export const HomePage: React.FC = () => {
   const messages = useAppStore((s) => s.messages);
 
   return (

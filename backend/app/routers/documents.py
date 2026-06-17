@@ -179,6 +179,34 @@ def list_document_chunks(
     )
 
 
+@router.patch("/api/chunks/{chunk_id}", response_model=schemas.ChunkOut)
+def update_chunk(
+    chunk_id: int,
+    payload: schemas.ChunkUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Chunk:
+    """修改分片内容。"""
+    chunk = db.get(Chunk, chunk_id)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="分片不存在")
+
+    doc = db.get(Document, chunk.doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    kb = db.get(KnowledgeBase, doc.kb_id)
+    if kb is None:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    if current_user.role != "admin" and kb.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="分片不存在")
+
+    chunk.content = payload.content
+    db.commit()
+    db.refresh(chunk)
+    return chunk
+
+
 @router.delete("/api/documents/{doc_id}", status_code=204)
 def delete_document(
     doc_id: int,

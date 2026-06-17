@@ -1,11 +1,10 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from '@/App';
 import { LoginPage } from '@/pages/Login/LoginPage';
+import { HomePage } from '@/pages/Home/HomePage';
 import { RequireAuth } from '@/components/RequireAuth';
-import { MainContent } from '@/sections/MainContent/MainContent';
 import { KnowledgeBasePage } from '@/pages/KnowledgeBase/KnowledgeBasePage';
 import { KnowledgeBaseDetail } from '@/pages/KnowledgeBase/KnowledgeBaseDetail';
-import { SkillsPage } from '@/pages/Skills/SkillsPage';
 import { UserManagementPage } from '@/pages/Users/UserManagementPage';
 import { PluginManagementPage } from '@/pages/Plugins/PluginManagementPage';
 import { StudioPage } from '@/pages/Studio/StudioPage';
@@ -25,11 +24,7 @@ export const router = createBrowserRouter([
         children: [
           {
             index: true,
-            element: <MainContent />,
-          },
-          {
-            path: 'skills',
-            element: <SkillsPage />,
+            element: <HomePage />,
           },
           {
             path: 'knowledge-base',

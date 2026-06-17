@@ -1,0 +1,9 @@
+{
+  "name": "transformer-api-tests",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test",
+    "test:verbose": "node --test --test-name-pattern"
+  }
+}

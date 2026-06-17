@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..database import get_db
 from ..models import ApiKey, App, Conversation, Message
-from ..services.chat_service import chat_with_app_config
+from ..services.chat_service import chat_with_app_config, compress_conversation as compress_service
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
@@ -51,6 +51,7 @@ def _verify_api_key(
         )
 
     api_key_obj.last_used_at = datetime.utcnow()
+    api_key_obj.call_count = (api_key_obj.call_count or 0) + 1
     db.commit()
 
     return app
@@ -186,3 +187,100 @@ def chat(
         db.commit()
 
     return StreamingResponse(persist_and_stream(), media_type="text/event-stream")
+
+
+@router.post("/apps/{app_id}/conversations/{conv_id}/simple-chat")
+def simple_chat(
+    app_id: int,
+    conv_id: int,
+    payload: schemas.AppSimpleChatRequest,
+    app: App = Depends(_verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """Send the latest message; backend auto-retrieves full context and streams the response.
+
+    Unlike /chat, this endpoint fetches all prior messages from the database
+    so the caller only needs to provide the new question.
+    """
+    conv = _get_conv_or_404(conv_id, app_id, app.owner_id, db)
+
+    prior_messages = db.scalars(
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at.asc())
+    ).all()
+
+    result = chat_with_app_config(
+        app=app,
+        question=payload.question,
+        stream=True,
+        db=db,
+        messages=prior_messages,
+    )
+
+    original_stream = result.body_iterator
+
+    async def persist_and_stream():
+        full_response = ""
+        async for chunk_str in original_stream:
+            yield chunk_str
+            for line in chunk_str.split("\n"):
+                if line.startswith("data: "):
+                    try:
+                        data = json.loads(line[6:])
+                        if "token" in data:
+                            full_response += data["token"]
+                    except json.JSONDecodeError:
+                        pass
+
+        now = datetime.utcnow()
+        conv.message_count = (
+            db.scalar(
+                select(func.count(Message.id))
+                .where(Message.conversation_id == conv_id)
+            ) or 0
+        )
+        db.add(Message(
+            conversation_id=conv_id,
+            role="user",
+            content=payload.question,
+            token_count=0,
+            created_at=now,
+        ))
+        if full_response:
+            db.add(Message(
+                conversation_id=conv_id,
+                role="assistant",
+                content=full_response,
+                token_count=0,
+                created_at=now,
+            ))
+        conv.message_count += 2
+        db.commit()
+
+    return StreamingResponse(persist_and_stream(), media_type="text/event-stream")
+
+
+@router.post("/apps/{app_id}/conversations/{conv_id}/compress")
+def compress_conversation(
+    app_id: int,
+    conv_id: int,
+    app: App = Depends(_verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """Compress the full conversation history into a summary using the app's LLM."""
+    conv = _get_conv_or_404(conv_id, app_id, app.owner_id, db)
+
+    messages = db.scalars(
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .order_by(Message.created_at.asc())
+    ).all()
+
+    result = compress_service(app=app, messages=messages, db=db)
+    summary = result["summary"]
+
+    conv.summary = summary
+    db.commit()
+
+    return {"summary": summary}

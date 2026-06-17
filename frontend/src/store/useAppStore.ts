@@ -167,39 +167,7 @@ export const useAppStore = create<AppState>((set) => ({
   goalTitle: '五子棋人机对战 — 使用启发式 AI 算法实现电脑落子',
   goalMeta: '5/5 · 2m · 89K tokens',
   goalStatus: 'Complete',
-  knowledgeBases: [
-    {
-      id: 'kb-1',
-      name: '前端开发规范',
-      description: 'React、TypeScript、Less、Tailwind 等前端技术栈的编码规范与最佳实践。',
-      createdAt: '2026/6/10 14:30:00',
-      updatedAt: '2026/6/12 09:15:00',
-      files: [
-        { id: 'f1', name: 'component-guide.md', size: '12 KB', type: 'md', uploadedAt: '2026/6/10' },
-        { id: 'f2', name: 'tailwind-config.js', size: '3 KB', type: 'js', uploadedAt: '2026/6/11' },
-      ],
-    },
-    {
-      id: 'kb-2',
-      name: 'AI 模型 Prompt 模板',
-      description: '常用 AI 辅助编程的 Prompt 模板集合，涵盖代码审查、重构、文档生成等场景。',
-      createdAt: '2026/6/8 10:00:00',
-      updatedAt: '2026/6/14 16:45:00',
-      files: [
-        { id: 'f3', name: 'code-review-prompts.md', size: '8 KB', type: 'md', uploadedAt: '2026/6/08' },
-        { id: 'f4', name: 'refactor-prompts.md', size: '6 KB', type: 'md', uploadedAt: '2026/6/09' },
-        { id: 'f5', name: 'doc-gen-prompts.md', size: '5 KB', type: 'md', uploadedAt: '2026/6/14' },
-      ],
-    },
-    {
-      id: 'kb-3',
-      name: '项目设计文档',
-      description: '产品 PRD、技术架构文档、API 接口定义等项目核心文档。',
-      createdAt: '2026/6/1 09:00:00',
-      updatedAt: '2026/6/5 11:20:00',
-      files: [],
-    },
-  ],
+  knowledgeBases: [],
   kbLoading: false,
   kbError: null,
   loadKnowledgeBases: async () => {
@@ -212,7 +180,6 @@ export const useAppStore = create<AppState>((set) => ({
         kbLoading: false,
         kbError: e instanceof Error ? e.message : String(e),
       });
-      // 失败时保留本地 mock 数据，UI 仍可用
     }
   },
   setActiveTask: (groupIndex: number, taskIndex: number) => {

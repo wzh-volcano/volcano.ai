@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { api } from '@/lib/api';
-import { UserForm } from '@/components/UserForm';
+import { UserForm } from './UserForm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {

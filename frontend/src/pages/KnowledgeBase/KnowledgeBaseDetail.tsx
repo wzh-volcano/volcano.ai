@@ -30,6 +30,7 @@ import {
   Scissors,
   Power,
   PowerOff,
+  Check,
 } from 'lucide-react';
 import type { DocumentChunk, KbCreatePayload } from '@/types';
 import { api } from '@/lib/api';
@@ -70,6 +71,10 @@ export const KnowledgeBaseDetail: React.FC = () => {
   const [chunksLoading, setChunksLoading] = useState(false);
   const [chunksError, setChunksError] = useState<string | null>(null);
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
+  // 分片编辑
+  const [editingChunkId, setEditingChunkId] = useState<number | null>(null);
+  const [editingChunkContent, setEditingChunkContent] = useState('');
+  const [savingChunk, setSavingChunk] = useState(false);
 
   // 多选 + 分片状态
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -184,6 +189,22 @@ export const KnowledgeBaseDetail: React.FC = () => {
       setChunksError(e instanceof Error ? e.message : '加载分片失败');
     } finally {
       setChunksLoading(false);
+    }
+  };
+
+  const handleSaveChunk = async (chunkId: number) => {
+    const trimmed = editingChunkContent.trim();
+    if (!trimmed) return;
+    setSavingChunk(true);
+    try {
+      const updated = await api.updateChunk(chunkId, trimmed);
+      setChunks((prev) => prev.map((c) => (c.id === chunkId ? { ...c, content: updated.content } : c)));
+      setEditingChunkId(null);
+      setEditingChunkContent('');
+    } catch (e) {
+      setChunksError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSavingChunk(false);
     }
   };
 
@@ -751,7 +772,7 @@ export const KnowledgeBaseDetail: React.FC = () => {
                 {chunks.map((c, idx) => (
                   <div
                     key={c.id}
-                    className="border border-border rounded-md p-3 bg-bg-2/40 hover:bg-bg-2 transition-colors"
+                    className="border border-border rounded-md p-3 bg-bg-2/40 hover:bg-bg-2 transition-colors group/chunk"
                   >
                     <div className="flex items-center justify-between mb-1.5 text-xs text-text-dim">
                       <div className="flex items-center gap-2">
@@ -769,10 +790,46 @@ export const KnowledgeBaseDetail: React.FC = () => {
                         {c.tokenCount} tokens · {c.content.length} 字符
                       </span>
                     </div>
-                    <pre className="text-xs text-text whitespace-pre-wrap break-words font-sans leading-relaxed">
-                      {c.content}
-                    </pre>
-                    {c.parentContent && (
+                    {editingChunkId === c.id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editingChunkContent}
+                          onChange={(e) => setEditingChunkContent(e.target.value)}
+                          className="w-full min-h-[80px] bg-bg-active border border-border rounded p-2 text-xs text-text font-mono outline-none resize-y"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex justify-end gap-1">
+                          <button
+                            onClick={() => { setEditingChunkId(null); setEditingChunkContent(''); }}
+                            className="px-2 py-1 text-2xs rounded bg-bg-3 border border-border text-text-dim hover:text-text transition-colors"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={() => handleSaveChunk(c.id)}
+                            disabled={savingChunk}
+                            className="px-2 py-1 text-2xs rounded bg-accent text-white hover:bg-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {savingChunk ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                            保存
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <pre className="text-xs text-text whitespace-pre-wrap break-words font-sans leading-relaxed">
+                          {c.content}
+                        </pre>
+                        <button
+                          onClick={() => { setEditingChunkId(c.id); setEditingChunkContent(c.content); }}
+                          className="mt-1.5 text-2xs text-text-dim hover:text-text transition-colors flex items-center gap-1 opacity-0 group-hover/chunk:opacity-100"
+                        >
+                          <Pencil size={10} />
+                          修改
+                        </button>
+                      </>
+                    )}
+                    {c.parentContent && editingChunkId !== c.id && (
                       <details className="mt-2">
                         <summary className="text-2xs text-text-dim cursor-pointer hover:text-text">
                           查看父块完整内容

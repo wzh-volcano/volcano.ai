@@ -27,7 +27,6 @@ from .routers import (
     plugins,
     providers,
     public_api,
-    skills,
     users,
 )
 from .security import hash_password
@@ -97,7 +96,6 @@ app.include_router(chat.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(apps.router)
-app.include_router(skills.router)
 app.include_router(conversations.router)
 app.include_router(public_api.router)
 

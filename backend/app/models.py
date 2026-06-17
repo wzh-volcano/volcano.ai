@@ -92,6 +92,25 @@ class Chunk(Base):
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
 
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(String(256), default="")
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    owner: Mapped["User"] = relationship(back_populates="skills")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -103,6 +122,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+    skills: Mapped[list["Skill"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan"
     )
     apps: Mapped[list["App"]] = relationship(
@@ -238,4 +260,3 @@ class ApiKey(Base):
     key_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    call_count: Mapped[int] = mapped_column(Integer, default=0)

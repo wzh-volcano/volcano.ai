@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStudioStore } from '@/store/useStudioStore';
 import { useConversationStore } from '@/store/useConversationStore';
@@ -13,10 +13,12 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
   ArrowLeft,
+  FileText,
   Save,
   Trash2,
   LayoutGrid,
@@ -25,7 +27,14 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  Copy,
+  Check,
+  FileDown,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
 
 
 export const AppConfigPage: React.FC = () => {
@@ -50,7 +59,6 @@ export const AppConfigPage: React.FC = () => {
   const [model, setModel] = useState('');
   const [provider, setProvider] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [skillIds, setSkillIds] = useState<number[]>([]);
   const [kbIds, setKbIds] = useState<number[]>([]);
   const [apiEnabled, setApiEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -58,6 +66,7 @@ export const AppConfigPage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [apiDocsOpen, setApiDocsOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const conversationId = searchParams.get('conversation_id');
   const loadConversations = useConversationStore((s) => s.loadConversations);
@@ -70,8 +79,7 @@ export const AppConfigPage: React.FC = () => {
   const activeModel = availableModels.find((m) => m.name === model);
   const maxTokens = activeModel?.context ?? 128000;
 
-  // Skills & KBs
-  const [availableSkills, setAvailableSkills] = useState<{ id: number; name: string }[]>([]);
+  // KBs
   const [availableKbs, setAvailableKbs] = useState<{ id: number; name: string }[]>([]);
 
   useEffect(() => {
@@ -84,7 +92,6 @@ export const AppConfigPage: React.FC = () => {
         setModel(config.model || '');
         setProvider(config.provider || '');
         setPrompt(config.prompt || '');
-        setSkillIds(config.skill_ids || []);
         setKbIds(config.kb_ids || []);
         setApiEnabled(app.apiEnabled ?? false);
       } catch {
@@ -123,16 +130,12 @@ export const AppConfigPage: React.FC = () => {
     }
   }, [provider, activeProviders, model]);
 
-  // Fetch skills and KBs
+  // Fetch KBs
   useEffect(() => {
     (async () => {
       try {
         const { api } = await import('@/lib/api');
-        const [skills, kbs] = await Promise.all([
-          api.listSkills(),
-          api.listKbs(),
-        ]);
-        setAvailableSkills(skills.map((s: any) => ({ id: s.id, name: s.name })));
+        const kbs = await api.listKbs();
         setAvailableKbs(kbs.map((kb: any) => ({ id: Number(kb.id), name: kb.name })));
       } catch {
         // 忽略
@@ -146,7 +149,7 @@ export const AppConfigPage: React.FC = () => {
     setSaveError('');
     setSaveSuccess(false);
     try {
-      const configJson = JSON.stringify({ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds });
+      const configJson = JSON.stringify({ model, provider, prompt, kb_ids: kbIds });
       await updateApp(app.id, { name, icon, description, config_json: configJson, api_enabled: apiEnabled });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
@@ -161,6 +164,180 @@ export const AppConfigPage: React.FC = () => {
     if (!app) return;
     await deleteApp(app.id);
     navigate('/studio');
+  };
+
+  const handleDownloadDocs = () => {
+    const content = buildApiDocs();
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${app?.name ?? 'api'}-docs.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildApiDocs = () => {
+    const origin = window.location.origin;
+    const appId = app?.id ?? '{app_id}';
+    return `# API 使用文档
+
+使用 API Key 通过 HTTP 接口访问此应用的对话能力。
+
+## 认证方式
+
+所有请求需在 Header 中携带 API Key：
+
+\`\`\`
+X-API-Key: vol_your_api_key_here
+\`\`\`
+
+## 1. 创建会话
+
+创建一个新的对话，返回会话 ID。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations
+
+请求体：
+  {"title": "可选会话标题"}
+
+响应：
+  {"id": 1, "title": "...", "created_at": "..."}
+
+示例：
+  curl -X POST ${origin}/api/public/apps/${appId}/conversations \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"title": "我的会话"}'
+\`\`\`
+
+## 2. 发送消息（需传入上下文）
+
+向指定会话发送消息，需在请求体中传入历史消息数组，以 SSE 流式返回模型回答。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/chat
+
+请求体：
+  {
+    "question": "用户消息",
+    "messages": [   ← 可选，用于多轮上下文
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ]
+  }
+
+响应（SSE）：
+  data: {"token": "回答"}
+  data: {"token": "内容"}
+  data: {"done": true}
+
+示例：
+  curl -N -X POST ${origin}/api/public/apps/${appId}/conversations/1/chat \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"question": "你好"}'
+\`\`\`
+
+## 3. 发送消息（自动检索上下文）
+
+仅传入最新消息，后端自动从数据库拉取完整上下文，流式返回回答。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/simple-chat
+
+请求体：
+  {
+    "question": "用户消息"
+  }
+
+响应（SSE）：
+  data: {"token": "回答"}
+  data: {"token": "内容"}
+  data: {"done": true}
+
+示例：
+  curl -N -X POST ${origin}/api/public/apps/${appId}/conversations/1/simple-chat \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"question": "你好"}'
+\`\`\`
+
+## 4. 获取消息列表
+
+获取指定会话的所有消息记录。
+
+\`\`\`
+GET /api/public/apps/{app_id}/conversations/{conv_id}/messages
+
+响应：
+  [
+    {"role": "user", "content": "你好", "token_count": 0, "created_at": "..."},
+    {"role": "assistant", "content": "你好！", "token_count": 0, "created_at": "..."}
+  ]
+
+示例：
+  curl ${origin}/api/public/apps/${appId}/conversations/1/messages \\
+    -H "X-API-Key: vol_xxx"
+\`\`\`
+
+## 5. 删除会话
+
+删除指定会话及其所有消息。
+
+\`\`\`
+DELETE /api/public/apps/{app_id}/conversations/{conv_id}
+
+响应：204 No Content
+
+示例：
+  curl -X DELETE ${origin}/api/public/apps/${appId}/conversations/1 \\
+    -H "X-API-Key: vol_xxx"
+\`\`\`
+
+## 6. 压缩上下文
+
+使用应用的 LLM 将会话全部历史消息压缩为摘要并保存。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/compress
+
+响应：
+  {"summary": "用户询问了...助手回答了..."}
+
+示例：
+  curl -X POST ${origin}/api/public/apps/${appId}/conversations/1/compress \\
+    -H "X-API-Key: vol_xxx"
+\`\`\`
+`;
+  };
+
+  const ApiPreBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const preRef = useRef<HTMLPreElement>(null);
+    const [copied, setCopied] = useState(false);
+    const handleCopy = async () => {
+      if (!preRef.current) return;
+      await navigator.clipboard.writeText(preRef.current.textContent || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+    return (
+      <div className="relative group/pre my-2">
+        <pre ref={preRef} className="bg-bg-3 border border-border rounded-lg p-3 overflow-x-auto text-xs leading-relaxed !mt-0 !mb-0">
+          {children}
+        </pre>
+        <div className="absolute top-2 right-2 opacity-0 group-hover/pre:opacity-100 transition-opacity flex gap-1">
+          <button
+            className="w-6 h-6 flex items-center justify-center rounded bg-bg-2 border border-border text-text-mute hover:text-text"
+            onClick={handleCopy}
+            title="复制"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        </div>
+      </div>
+    );
   };
 
   const handleToggleStatus = async () => {
@@ -207,6 +384,12 @@ export const AppConfigPage: React.FC = () => {
             {showPreview ? <EyeOff size={13} /> : <Eye size={13} />}
             {showPreview ? '隐藏预览' : '预览'}
           </Button>
+          {apiEnabled && (
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setApiDocsOpen(true)}>
+              <FileText size={13} />
+              API 文档
+            </Button>
+          )}
           {saveSuccess && (
             <span className="flex items-center gap-1 text-xs text-success">
               <CheckCircle2 size={13} />
@@ -318,36 +501,6 @@ export const AppConfigPage: React.FC = () => {
 
             <Separator />
 
-            {/* Skills */}
-            <div>
-              <h3 className="text-sm font-medium text-text mb-3">技能配置</h3>
-              {availableSkills.length === 0 ? (
-                <p className="text-xs text-text-dim">暂无技能，请先到技能管理页面创建</p>
-              ) : (
-                <div className="max-h-40 overflow-y-auto space-y-1.5">
-                  {availableSkills.map((s) => (
-                    <label key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        checked={skillIds.includes(s.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSkillIds([...skillIds, s.id]);
-                          } else {
-                            setSkillIds(skillIds.filter((id) => id !== s.id));
-                          }
-                        }}
-                        className="rounded border-border"
-                      />
-                      <span className="text-text">{s.name}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
             {/* Knowledge Bases */}
             <div>
               <h3 className="text-sm font-medium text-text mb-3">关联知识库</h3>
@@ -400,12 +553,167 @@ export const AppConfigPage: React.FC = () => {
           <div className="flex-1 border-l border-border flex flex-col min-w-0 animate-in slide-in-from-right">
             <StudioChatPreview
               appId={app.id}
-              config={{ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds, maxTokens }}
+              config={{ model, provider, prompt, kb_ids: kbIds, maxTokens }}
               conversationId={conversationId ? Number(conversationId) : undefined}
             />
           </div>
         )}
       </div>
+
+      {/* API 文档弹窗 */}
+      <Dialog open={apiDocsOpen} onOpenChange={setApiDocsOpen}>
+        <DialogContent className="sm:max-w-[640px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-6">
+              <div>
+                <DialogTitle>API 使用文档</DialogTitle>
+                <DialogDescription>使用 API Key 通过 HTTP 接口访问此应用的对话能力</DialogDescription>
+              </div>
+              <button
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-hover text-text-mute hover:text-text transition-colors"
+                onClick={handleDownloadDocs}
+                title="下载 Markdown"
+              >
+                <FileDown size={14} />
+              </button>
+            </div>
+          </DialogHeader>
+          <div className="py-2 text-sm prose prose-invert prose-sm max-w-none">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+              components={{ pre: ({ children }) => <ApiPreBlock>{children}</ApiPreBlock> }}
+            >
+              {`## 认证方式
+
+所有请求需在 Header 中携带 API Key：
+
+\`\`\`
+X-API-Key: vol_your_api_key_here
+\`\`\`
+
+## 1. 创建会话
+
+创建一个新的对话，返回会话 ID。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations
+
+请求体：
+  {"title": "可选会话标题"}
+
+响应：
+  {"id": 1, "title": "...", "created_at": "..."}
+
+示例：
+  curl -X POST ${window.location.origin}/api/public/apps/${app?.id}/conversations \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"title": "我的会话"}'
+\`\`\`
+
+## 2. 发送消息（需传入上下文）
+
+向指定会话发送消息，需在请求体中传入历史消息数组，以 SSE 流式返回模型回答。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/chat
+
+请求体：
+  {
+    "question": "用户消息",
+    "messages": [   ← 可选，用于多轮上下文
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ]
+  }
+
+响应（SSE）：
+  data: {"token": "回答"}
+  data: {"token": "内容"}
+  data: {"done": true}
+
+示例：
+  curl -N -X POST ${window.location.origin}/api/public/apps/${app?.id}/conversations/1/chat \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"question": "你好"}'
+\`\`\`
+
+## 3. 发送消息（自动检索上下文）
+
+仅传入最新消息，后端自动从数据库拉取完整上下文，流式返回回答。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/simple-chat
+
+请求体：
+  {
+    "question": "用户消息"
+  }
+
+响应（SSE）：
+  data: {"token": "回答"}
+  data: {"token": "内容"}
+  data: {"done": true}
+
+示例：
+  curl -N -X POST ${window.location.origin}/api/public/apps/${app?.id}/conversations/1/simple-chat \\
+    -H "X-API-Key: vol_xxx" \\
+    -H "Content-Type: application/json" \\
+    -d '{"question": "你好"}'
+\`\`\`
+
+## 4. 获取消息列表
+
+获取指定会话的所有消息记录。
+
+\`\`\`
+GET /api/public/apps/{app_id}/conversations/{conv_id}/messages
+
+响应：
+  [
+    {"role": "user", "content": "你好", "token_count": 0, "created_at": "..."},
+    {"role": "assistant", "content": "你好！", "token_count": 0, "created_at": "..."}
+  ]
+
+示例：
+  curl ${window.location.origin}/api/public/apps/${app?.id}/conversations/1/messages \\
+    -H "X-API-Key: vol_xxx"
+\`\`\`
+
+## 5. 删除会话
+
+删除指定会话及其所有消息。
+
+\`\`\`
+DELETE /api/public/apps/{app_id}/conversations/{conv_id}
+
+响应：204 No Content
+
+示例：
+  curl -X DELETE ${window.location.origin}/api/public/apps/${app?.id}/conversations/1 \\
+    -H "X-API-Key: vol_xxx"
+\`\`\`
+
+## 6. 压缩上下文
+
+使用应用的 LLM 将会话全部历史消息压缩为摘要并保存。
+
+\`\`\`
+POST /api/public/apps/{app_id}/conversations/{conv_id}/compress
+
+响应：
+  {"summary": "用户询问了...助手回答了..."}
+
+示例：
+  curl -X POST ${window.location.origin}/api/public/apps/${app?.id}/conversations/1/compress \\
+    -H "X-API-Key: vol_xxx"
+\`\`\``}
+            </ReactMarkdown>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete dialog */}
       <Dialog open={deleteTarget} onOpenChange={setDeleteTarget}>

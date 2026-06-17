@@ -13,6 +13,7 @@ interface ConversationState {
   selectConversation: (convId: number) => Promise<void>;
   deleteConversation: (convId: number, appId: number) => Promise<void>;
   addMessages: (convId: number, msgs: { role: string; content: string }[]) => Promise<void>;
+  updateTitle: (convId: number, title: string) => Promise<void>;
   updateSummary: (convId: number, summary: string) => Promise<void>;
   reset: () => void;
 }
@@ -71,8 +72,34 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const conv = get().conversations.find((c) => c.id === convId);
     if (conv) {
       conv.message_count += msgs.length;
+      // Auto-set title from first user message
+      if (!conv.title) {
+        const firstUser = msgs.find((m) => m.role === 'user');
+        if (firstUser) {
+          const simplified = firstUser.content
+            .replace(/[\n\r]+/g, ' ')
+            .replace(/[，。！？、；：.!,?;:]+$/, '')
+            .trim()
+            .slice(0, 30);
+          if (simplified) {
+            conv.title = simplified;
+            try {
+              await api.updateConversation(convId, { title: simplified });
+            } catch { /* ignore */ }
+          }
+        }
+      }
       set({ conversations: [...get().conversations] });
     }
+  },
+
+  updateTitle: async (convId: number, title: string) => {
+    await api.updateConversation(convId, { title });
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === convId ? { ...c, title } : c
+      ),
+    }));
   },
 
   updateSummary: async (convId: number, summary: string) => {

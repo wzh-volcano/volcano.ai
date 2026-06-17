@@ -8,7 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from sqlalchemy.orm import Session
 
-from ..models import App, KnowledgeBase, Skill
+from ..models import App, KnowledgeBase
 from ..providers import get_current, get_current_embedding, get_provider
 from ..rag import vectorstore
 
@@ -50,13 +50,6 @@ def chat_with_app_config(
     full_prompt = system_prompt
     if context_parts:
         full_prompt += "\n\n参考资料：\n" + "\n\n".join(context_parts)
-
-    # 技能拼接
-    skill_ids = config.get("skill_ids", [])
-    for sid in skill_ids:
-        skill = db.get(Skill, sid)
-        if skill:
-            full_prompt = skill.content + "\n\n" + full_prompt
 
     # 获取 provider
     provider_name = config.get("provider", "")
