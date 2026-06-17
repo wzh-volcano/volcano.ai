@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { App, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { App, ChatMessage, Conversation, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
 
 // ---------- 后端返回类型 ----------
 export interface KbOut {
@@ -724,5 +724,53 @@ export const api = {
   /** 获取已安装已激活 provider 的模型列表 */
   fetchActiveModels: async (): Promise<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]> => {
     return request<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]>('/api/plugins/active-models');
+  },
+
+  // ========== 对话持久化 ==========
+  /** 列出 App 下的所有对话 */
+  listConversations: async (appId: number): Promise<Conversation[]> => {
+    return request<Conversation[]>(`/api/apps/${appId}/conversations`);
+  },
+
+  /** 创建新对话 */
+  createConversation: async (appId: number, title?: string): Promise<Conversation> => {
+    return request<Conversation>(`/api/apps/${appId}/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title ?? '' }),
+    });
+  },
+
+  /** 获取对话详情 */
+  getConversation: async (convId: number): Promise<Conversation> => {
+    return request<Conversation>(`/api/conversations/${convId}`);
+  },
+
+  /** 更新对话（title / summary） */
+  updateConversation: async (convId: number, data: { title?: string; summary?: string }): Promise<Conversation> => {
+    return request<Conversation>(`/api/conversations/${convId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 删除对话 */
+  deleteConversation: async (convId: number): Promise<void> => {
+    await request<void>(`/api/conversations/${convId}`, { method: 'DELETE' });
+  },
+
+  /** 列出对话的所有消息 */
+  listMessages: async (convId: number): Promise<ChatMessage[]> => {
+    return request<ChatMessage[]>(`/api/conversations/${convId}/messages`);
+  },
+
+  /** 批量追加消息 */
+  addMessages: async (convId: number, messages: { role: string; content: string }[]): Promise<ChatMessage[]> => {
+    return request<ChatMessage[]>(`/api/conversations/${convId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
   },
 };
