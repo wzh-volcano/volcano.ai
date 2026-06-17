@@ -156,7 +156,6 @@ def chat_with_app(
         stream=payload.stream,
         db=db,
         messages=payload.messages,
-        user_id=current_user.id,
     )
 
 

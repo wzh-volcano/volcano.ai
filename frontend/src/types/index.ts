@@ -147,6 +147,7 @@ export interface App {
   category: string;
   status: 'draft' | 'published';
   configJson: string;
+  apiEnabled?: boolean;
   ownerId: number;
   ownerUsername?: string;
   createdAt: string;
@@ -167,4 +168,16 @@ export interface Conversation {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiKeyCreated extends ApiKey {
+  full_key: string;
 }

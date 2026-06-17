@@ -10,6 +10,7 @@ import { UserManagementPage } from '@/pages/Users/UserManagementPage';
 import { PluginManagementPage } from '@/pages/Plugins/PluginManagementPage';
 import { StudioPage } from '@/pages/Studio/StudioPage';
 import { AppConfigPage } from '@/pages/Studio/AppConfigPage';
+import { ApiKeysPage } from '@/pages/ApiKeys/ApiKeysPage';
 
 export const router = createBrowserRouter([
   {
@@ -53,6 +54,10 @@ export const router = createBrowserRouter([
           {
             path: 'studio/:id',
             element: <AppConfigPage />,
+          },
+          {
+            path: 'api-keys',
+            element: <ApiKeysPage />,
           },
           {
             path: '*',

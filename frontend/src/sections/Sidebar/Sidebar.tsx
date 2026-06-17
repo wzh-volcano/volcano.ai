@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/useAppStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import {
@@ -48,6 +48,7 @@ export const Sidebar: React.FC = () => {
   const [pwdError, setPwdError] = useState('');
   const [pwdSubmitting, setPwdSubmitting] = useState(false);
 
+  const navigate = useNavigate();
   const isAdmin = currentUser?.role === 'admin';
 
   const menuItemClass = ({ isActive }: { isActive: boolean }) =>
@@ -183,6 +184,10 @@ export const Sidebar: React.FC = () => {
           <DropdownMenuItem onClick={() => setChangePwdOpen(true)}>
             <KeyRound size={14} />
             修改密码
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate('/api-keys')}>
+            <KeyRound size={14} />
+            API Key
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} className="text-error focus:text-error">

@@ -52,6 +52,7 @@ export const AppConfigPage: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [skillIds, setSkillIds] = useState<number[]>([]);
   const [kbIds, setKbIds] = useState<number[]>([]);
+  const [apiEnabled, setApiEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -85,6 +86,7 @@ export const AppConfigPage: React.FC = () => {
         setPrompt(config.prompt || '');
         setSkillIds(config.skill_ids || []);
         setKbIds(config.kb_ids || []);
+        setApiEnabled(app.apiEnabled ?? false);
       } catch {
         // 解析失败用默认值
       }
@@ -145,7 +147,7 @@ export const AppConfigPage: React.FC = () => {
     setSaveSuccess(false);
     try {
       const configJson = JSON.stringify({ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds });
-      await updateApp(app.id, { name, icon, description, config_json: configJson });
+      await updateApp(app.id, { name, icon, description, config_json: configJson, api_enabled: apiEnabled });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (e) {
@@ -372,6 +374,23 @@ export const AppConfigPage: React.FC = () => {
                   ))}
                 </div>
               )}
+            </div>
+
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-text">Open API</h3>
+                <p className="text-xs text-text-dim mt-0.5">开启后可通过 API Key 访问此应用的对话接口</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={apiEnabled}
+                  onChange={(e) => setApiEnabled(e.target.checked)}
+                />
+                <div className="w-9 h-5 bg-bg-3 rounded-full peer peer-checked:bg-accent after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+              </label>
             </div>
           </div>
         </div>

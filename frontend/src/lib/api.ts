@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { App, ChatMessage, Conversation, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
 
 // ---------- 后端返回类型 ----------
 export interface KbOut {
@@ -135,6 +135,7 @@ export interface AppOut {
   category: string;
   status: string;
   config_json: string;
+  api_enabled: boolean;
   owner_id: number;
   owner_username: string | null;
   created_at: string;
@@ -259,6 +260,7 @@ function mapApp(a: AppOut): App {
     category: a.category,
     status: a.status as 'draft' | 'published',
     configJson: a.config_json,
+    apiEnabled: a.api_enabled,
     ownerId: a.owner_id,
     ownerUsername: a.owner_username ?? undefined,
     createdAt: formatDate(a.created_at),
@@ -691,7 +693,7 @@ export const api = {
     return mapApp(data);
   },
 
-  updateApp: async (id: number, data: { name?: string; icon?: string; description?: string; config_json?: string }): Promise<App> => {
+  updateApp: async (id: number, data: { name?: string; icon?: string; description?: string; config_json?: string; api_enabled?: boolean }): Promise<App> => {
     const result = await request<AppOut>(`/api/apps/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -772,5 +774,25 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages }),
     });
+  },
+
+  // ========== API Keys ==========
+  /** 创建 API key */
+  createApiKey: async (name: string): Promise<ApiKeyCreated> => {
+    return request<ApiKeyCreated>('/api/auth/api-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  /** 列出当前用户的 API keys */
+  listApiKeys: async (): Promise<ApiKey[]> => {
+    return request<ApiKey[]>('/api/auth/api-keys');
+  },
+
+  /** 删除 API key */
+  deleteApiKey: async (keyId: number): Promise<void> => {
+    await request<void>(`/api/auth/api-keys/${keyId}`, { method: 'DELETE' });
   },
 };

@@ -8,7 +8,7 @@ interface StudioState {
   error: string | null;
   loadApps: (all?: boolean) => Promise<void>;
   createApp: (payload: { name: string; icon?: string; description?: string }) => Promise<App>;
-  updateApp: (id: number, data: { name?: string; icon?: string; description?: string; config_json?: string }) => Promise<void>;
+  updateApp: (id: number, data: { name?: string; icon?: string; description?: string; config_json?: string; api_enabled?: boolean }) => Promise<void>;
   deleteApp: (id: number) => Promise<void>;
   toggleStatus: (id: number) => Promise<void>;
 }

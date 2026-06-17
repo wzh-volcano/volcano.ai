@@ -19,13 +19,10 @@ def chat_with_app_config(
     stream: bool,
     db: Session,
     messages: list | None = None,
-    user_id: int | None = None,
 ) -> StreamingResponse | dict:
     """Execute a chat against the given app's configuration.
 
     Returns either a StreamingResponse (stream=True) or a dict {"answer": str}.
-    user_id is used for RAG/skill ownership checks (pass the app owner's ID
-    for public API calls).
     """
     config = json.loads(app.config_json or "{}")
 
