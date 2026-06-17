@@ -17,6 +17,7 @@ from .providers import (
     sync_builtin_to_db,
     sync_uploaded_to_db,
 )
+from .plugins.registry import register_builtin_providers, sync_extensions_to_db
 from .routers import (
     apps,
     auth,
@@ -25,6 +26,7 @@ from .routers import (
     documents,
     knowledge_bases,
     plugins,
+    plugins_v2,
     providers,
     public_api,
     users,
@@ -58,6 +60,8 @@ def seed_providers() -> None:
         sync_builtin_to_db(db)
         results = load_uploaded_plugins()
         sync_uploaded_to_db(db, results)
+        register_builtin_providers()
+        sync_extensions_to_db(db)
     finally:
         db.close()
 
@@ -98,6 +102,7 @@ app.include_router(users.router)
 app.include_router(apps.router)
 app.include_router(conversations.router)
 app.include_router(public_api.router)
+app.include_router(plugins_v2.router)
 
 
 @app.get("/api/health", tags=["meta"])
