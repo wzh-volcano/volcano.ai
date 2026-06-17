@@ -63,6 +63,9 @@ def _migrate_add_columns() -> None:
     # skills 新增 description 列
     _ensure_column(cursor, "skills", "description", "VARCHAR(512) DEFAULT ''")
 
+    # apps 新增 api_enabled 列
+    _ensure_column(cursor, "apps", "api_enabled", "BOOLEAN DEFAULT 0")
+
     conn.commit()
     conn.close()
 

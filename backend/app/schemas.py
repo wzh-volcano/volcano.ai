@@ -152,6 +152,27 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=128)
 
 
+# ---------- API Keys ----------
+class ApiKeyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class ApiKeyOut(BaseModel):
+    id: int
+    name: str
+    key_prefix: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
+class ApiKeyCreatedOut(ApiKeyOut):
+    """创建成功后返回一次完整 key。"""
+    full_key: str
+
+
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=2, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)
@@ -293,6 +314,7 @@ class AppUpdate(BaseModel):
     icon: str | None = None
     description: str | None = None
     config_json: str | None = None
+    api_enabled: bool | None = None
 
 
 class AppStatusUpdate(BaseModel):
@@ -307,6 +329,7 @@ class AppOut(BaseModel):
     type: str
     category: str
     status: str
+    api_enabled: bool = False
     config_json: str
     owner_id: int
     owner_username: str | None = None

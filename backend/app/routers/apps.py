@@ -28,6 +28,7 @@ def _to_out(app: App) -> dict:
         "type": app.type,
         "category": app.category,
         "status": app.status,
+        "api_enabled": app.api_enabled,
         "config_json": app.config_json,
         "owner_id": app.owner_id,
         "owner_username": app.owner.username if app.owner else None,
@@ -112,6 +113,8 @@ def update_app(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="config_json 必须是合法 JSON")
         app.config_json = payload.config_json
+    if payload.api_enabled is not None:
+        app.api_enabled = payload.api_enabled
     db.commit()
     db.refresh(app)
     app.owner_username = app.owner.username if app.owner else None
