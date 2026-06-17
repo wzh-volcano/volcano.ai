@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStudioStore } from '@/store/useStudioStore';
+import { useConversationStore } from '@/store/useConversationStore';
 import { StudioChatPreview } from './StudioChatPreview';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,6 +57,10 @@ export const AppConfigPage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [searchParams] = useSearchParams();
+  const conversationId = searchParams.get('conversation_id');
+  const loadConversations = useConversationStore((s) => s.loadConversations);
+  const resetConversations = useConversationStore((s) => s.reset);
 
   // Provider/Model dropdown data
   const [activeProviders, setActiveProviders] = useState<{ provider_name: string; label: string; models: { name: string; context: number }[] }[]>([]);
@@ -85,6 +90,14 @@ export const AppConfigPage: React.FC = () => {
       }
     }
   }, [app]);
+
+  // Load conversations when app is loaded
+  useEffect(() => {
+    if (app) {
+      loadConversations(app.id);
+    }
+    return () => { resetConversations(); };
+  }, [app?.id]);
 
   // Fetch active providers
   useEffect(() => {
@@ -366,7 +379,11 @@ export const AppConfigPage: React.FC = () => {
         {/* Right panel */}
         {showPreview && (
           <div className="flex-1 border-l border-border flex flex-col min-w-0 animate-in slide-in-from-right">
-            <StudioChatPreview appId={app.id} config={{ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds, maxTokens }} />
+            <StudioChatPreview
+              appId={app.id}
+              config={{ model, provider, prompt, skill_ids: skillIds, kb_ids: kbIds, maxTokens }}
+              conversationId={conversationId ? Number(conversationId) : undefined}
+            />
           </div>
         )}
       </div>

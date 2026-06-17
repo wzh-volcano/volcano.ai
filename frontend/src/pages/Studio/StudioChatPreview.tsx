@@ -21,6 +21,7 @@ interface Props {
     kb_ids: number[];
     maxTokens?: number;
   };
+  conversationId?: number;
 }
 
 const SCROLL_BOTTOM_THRESHOLD = 150;
@@ -97,7 +98,8 @@ const CodeBlock: React.FC<React.ComponentPropsWithoutRef<'pre'> & { streaming?: 
   );
 };
 
-export const StudioChatPreview: React.FC<Props> = ({ appId, config }) => {
+export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversationId }) => {
+  void conversationId;
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: '你好！我是聊天助手，有什么可以帮助你的？' },
   ]);
