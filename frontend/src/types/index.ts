@@ -152,3 +152,19 @@ export interface App {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface Conversation {
+  id: number;
+  app_id: number;
+  title: string;
+  summary: string | null;
+  message_count: number;
+  owner_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
