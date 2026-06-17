@@ -53,13 +53,42 @@ def _to_out(p: ProviderConfig) -> schemas.PluginOut:
     )
 
 
-@router.get("", response_model=list[schemas.PluginOut])
+def _to_list_item(p) -> schemas.PluginListItem:
+    return schemas.PluginListItem(
+        id=p.id, name=p.name, label=p.label,
+        category=p.category or "model", source=p.source,
+        installed=p.installed, is_active=p.is_active,
+        error=p.error,
+        created_at=p.created_at.isoformat() if p.created_at else "",
+        updated_at=p.updated_at.isoformat() if p.updated_at else "",
+    )
+
+
+def _to_ext_list_item(p) -> schemas.PluginListItem:
+    return schemas.PluginListItem(
+        id=-p.id,
+        name=p.name, label=p.label,
+        category=p.category, source=p.source,
+        installed=p.installed, is_active=p.is_active,
+        error=p.error,
+        created_at=p.created_at.isoformat() if p.created_at else "",
+        updated_at=p.updated_at.isoformat() if p.updated_at else "",
+    )
+
+
+@router.get("", response_model=list[schemas.PluginListItem])
 def list_plugins(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
-) -> list[schemas.PluginOut]:
-    rows = db.scalars(select(ProviderConfig).order_by(ProviderConfig.id)).all()
-    return [_to_out(p) for p in rows]
+) -> list[schemas.PluginListItem]:
+    from ..models import PluginExtension
+
+    model_rows = db.scalars(select(ProviderConfig).order_by(ProviderConfig.id)).all()
+    ext_rows = db.scalars(select(PluginExtension).order_by(PluginExtension.id)).all()
+
+    result: list[schemas.PluginListItem] = [_to_list_item(p) for p in model_rows]
+    result.extend([_to_ext_list_item(p) for p in ext_rows])
+    return result
 
 
 @router.post("/upload", response_model=schemas.PluginInstallResponse)

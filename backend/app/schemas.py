@@ -274,6 +274,20 @@ class ExtensionPluginSkillUpdate(BaseModel):
     match_mode: str = "keyword"
 
 
+class PluginListItem(BaseModel):
+    """Unified view for plugin list, merging model + extension plugins."""
+    id: int
+    name: str
+    label: str
+    category: str
+    source: str
+    installed: bool
+    is_active: bool
+    error: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class PluginImportRequest(BaseModel):
     """通过 URL 导入插件。"""
 
