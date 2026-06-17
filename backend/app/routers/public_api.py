@@ -46,8 +46,8 @@ def _verify_api_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="应用不存在")
     if not app.api_enabled:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="该应用未开放 API 访问",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="应用不存在",
         )
 
     api_key_obj.last_used_at = datetime.utcnow()
@@ -56,7 +56,14 @@ def _verify_api_key(
     return app
 
 
-@router.post("/apps/{app_id}/conversations", status_code=201)
+def _get_conv_or_404(conv_id: int, app_id: int, owner_id: int, db: Session) -> Conversation:
+    conv = db.get(Conversation, conv_id)
+    if not conv or conv.app_id != app_id or conv.owner_id != owner_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    return conv
+
+
+@router.post("/apps/{app_id}/conversations", status_code=201, response_model=schemas.ConversationOut)
 def create_conversation(
     app_id: int,
     payload: schemas.ConversationCreate,
@@ -84,7 +91,7 @@ def create_conversation(
     )
 
 
-@router.get("/apps/{app_id}/conversations/{conv_id}/messages")
+@router.get("/apps/{app_id}/conversations/{conv_id}/messages", response_model=list[schemas.MessageOut])
 def list_messages(
     app_id: int,
     conv_id: int,
@@ -92,9 +99,7 @@ def list_messages(
     db: Session = Depends(get_db),
 ) -> list[schemas.MessageOut]:
     """List all messages in a conversation."""
-    conv = db.get(Conversation, conv_id)
-    if not conv or conv.app_id != app_id or conv.owner_id != app.owner_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    conv = _get_conv_or_404(conv_id, app_id, app.owner_id, db)
     messages = db.scalars(
         select(Message)
         .where(Message.conversation_id == conv_id)
@@ -111,9 +116,7 @@ def delete_conversation(
     db: Session = Depends(get_db),
 ) -> None:
     """Delete a conversation."""
-    conv = db.get(Conversation, conv_id)
-    if not conv or conv.app_id != app_id or conv.owner_id != app.owner_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    conv = _get_conv_or_404(conv_id, app_id, app.owner_id, db)
     db.delete(conv)
     db.commit()
 
@@ -132,9 +135,7 @@ def chat(
     {question, messages?} where messages is an optional array of prior
     {role, content} objects for multi-turn context.
     """
-    conv = db.get(Conversation, conv_id)
-    if not conv or conv.app_id != app_id or conv.owner_id != app.owner_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    conv = _get_conv_or_404(conv_id, app_id, app.owner_id, db)
 
     result = chat_with_app_config(
         app=app,
@@ -144,64 +145,37 @@ def chat(
         messages=payload.messages,
     )
 
-    if isinstance(result, StreamingResponse):
-        original_stream = result.body_iterator
+    original_stream = result.body_iterator
 
-        async def persist_and_stream():
-            full_response = ""
-            async for chunk_str in original_stream:
-                yield chunk_str
-                for line in chunk_str.split("\n"):
-                    if line.startswith("data: "):
-                        try:
-                            data = json.loads(line[6:])
-                            if "token" in data:
-                                full_response += data["token"]
-                        except json.JSONDecodeError:
-                            pass
+    async def persist_and_stream():
+        full_response = ""
+        async for chunk_str in original_stream:
+            yield chunk_str
+            for line in chunk_str.split("\n"):
+                if line.startswith("data: "):
+                    try:
+                        data = json.loads(line[6:])
+                        if "token" in data:
+                            full_response += data["token"]
+                    except json.JSONDecodeError:
+                        pass
 
-            now = datetime.utcnow()
-            if payload.question:
-                db.add(Message(
-                    conversation_id=conv_id,
-                    role="user",
-                    content=payload.question,
-                    token_count=0,
-                    created_at=now,
-                ))
-            if full_response:
-                db.add(Message(
-                    conversation_id=conv_id,
-                    role="assistant",
-                    content=full_response,
-                    token_count=0,
-                    created_at=now,
-                ))
-            conv.message_count = (
-                db.scalar(
-                    select(func.count(Message.id))
-                    .where(Message.conversation_id == conv_id)
-                ) or 0
-            )
-            db.commit()
-
-        return StreamingResponse(persist_and_stream(), media_type="text/event-stream")
-    else:
+        now = datetime.utcnow()
         if payload.question:
             db.add(Message(
                 conversation_id=conv_id,
                 role="user",
                 content=payload.question,
                 token_count=0,
-                created_at=datetime.utcnow(),
+                created_at=now,
             ))
-        if "answer" in result:
+        if full_response:
             db.add(Message(
                 conversation_id=conv_id,
                 role="assistant",
-                content=result["answer"],
+                content=full_response,
                 token_count=0,
-                created_at=datetime.utcnow(),
+                created_at=now,
             ))
         conv.message_count = (
             db.scalar(
@@ -210,4 +184,5 @@ def chat(
             ) or 0
         )
         db.commit()
-        return result
+
+    return StreamingResponse(persist_and_stream(), media_type="text/event-stream")
