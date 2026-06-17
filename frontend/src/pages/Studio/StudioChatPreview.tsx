@@ -6,10 +6,8 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+import { useConversationStore } from '@/store/useConversationStore';
+import type { ChatMessage } from '@/types';
 
 interface Props {
   appId: number;
@@ -99,7 +97,6 @@ const CodeBlock: React.FC<React.ComponentPropsWithoutRef<'pre'> & { streaming?: 
 };
 
 export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversationId }) => {
-  void conversationId;
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: '你好！我是聊天助手，有什么可以帮助你的？' },
   ]);
@@ -116,6 +113,32 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pausedRef = useRef(false);
+  const lastUserMsgIndex = useRef(-1);
+  const messagesRef = useRef(messages);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const storeConvId = useConversationStore((s) => s.currentConvId);
+  const storeMessages = useConversationStore((s) => s.messages);
+  const storeAddMessages = useConversationStore((s) => s.addMessages);
+  const storeSelectConversation = useConversationStore((s) => s.selectConversation);
+  const storeUpdateSummary = useConversationStore((s) => s.updateSummary);
+
+  const effectiveConvId = conversationId ?? storeConvId;
+
+  useEffect(() => {
+    if (effectiveConvId && storeConvId !== effectiveConvId) {
+      storeSelectConversation(effectiveConvId);
+    }
+  }, [effectiveConvId]);
+
+  useEffect(() => {
+    if (storeConvId === effectiveConvId && storeMessages.length > 0) {
+      setMessages(storeMessages);
+    }
+  }, [storeMessages, storeConvId, effectiveConvId]);
 
   const MAX_TOKENS = config.maxTokens ?? 128000;
   const estimateTokens = (text: string) => Math.ceil(text.length / 2);
@@ -218,6 +241,13 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
           }
         }
       }
+      if (effectiveConvId && lastUserMsgIndex.current >= 0) {
+        const msgs = messagesRef.current.slice(lastUserMsgIndex.current);
+        if (msgs.length >= 2) {
+          storeAddMessages(effectiveConvId, msgs.map((m) => ({ role: m.role, content: m.content })));
+        }
+        lastUserMsgIndex.current = -1;
+      }
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         setError(e instanceof Error ? e.message : '请求失败');
@@ -236,7 +266,11 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
     const q = input.trim();
     if (!q || sending) return;
 
-    setMessages((prev) => [...prev, { role: 'user', content: q }]);
+    setMessages((prev) => {
+      const newMsgs = [...prev, { role: 'user' as const, content: q }];
+      lastUserMsgIndex.current = prev.length;
+      return newMsgs;
+    });
     setInput('');
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
     await startStream(q);
@@ -268,7 +302,11 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
       });
       if (!response.ok) throw new Error('压缩失败');
       const data = await response.json();
-      setCompressSummary(data.summary);
+      const summary = data.summary;
+      setCompressSummary(summary);
+      if (effectiveConvId && summary) {
+        storeUpdateSummary(effectiveConvId, summary);
+      }
       setCompressUntil(messages.length - 1);
       setCompressExpanded(false);
     } catch (e: any) {
