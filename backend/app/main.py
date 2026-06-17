@@ -21,6 +21,7 @@ from .routers import (
     apps,
     auth,
     chat,
+    conversations,
     documents,
     knowledge_bases,
     plugins,
@@ -96,6 +97,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(apps.router)
 app.include_router(skills.router)
+app.include_router(conversations.router)
 
 
 @app.get("/api/health", tags=["meta"])
