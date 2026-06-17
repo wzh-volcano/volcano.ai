@@ -1,4 +1,4 @@
-"""ORM 模型：User / KnowledgeBase / Document / Chunk / Skill / ProviderConfig / App。
+"""ORM 模型：User / KnowledgeBase / Document / Chunk / ProviderConfig / App。
 
 向量直接以 BLOB 存入 chunks.embedding（numpy.float32 的 raw bytes），
 检索时还原为 ndarray 做余弦相似度。
@@ -92,25 +92,6 @@ class Chunk(Base):
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
 
-class Skill(Base):
-    __tablename__ = "skills"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(256), nullable=False)
-    description: Mapped[str] = mapped_column(String(512), default="")
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    filename: Mapped[str] = mapped_column(String(256), default="")
-    owner_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    owner: Mapped["User"] = relationship(back_populates="skills")
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -122,9 +103,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
-        back_populates="owner", cascade="all, delete-orphan"
-    )
-    skills: Mapped[list["Skill"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan"
     )
     apps: Mapped[list["App"]] = relationship(
@@ -156,6 +134,29 @@ class ProviderConfig(Base):
     api_key: Mapped[str] = mapped_column(String(512), default="")
     embedding_model: Mapped[str] = mapped_column(String(128), default="")
     extra_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class PluginExtension(Base):
+    """非 model 类插件（skill / extension）。"""
+
+    __tablename__ = "plugin_extensions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(128), default="")
+    category: Mapped[str] = mapped_column(String(32), default="extension", index=True)
+    source: Mapped[str] = mapped_column(String(16), default="uploaded")
+    version: Mapped[str] = mapped_column(String(32), default="")
+    skills_json: Mapped[str] = mapped_column(Text, default="{}")
+    hooks_json: Mapped[str] = mapped_column(Text, default="{}")
+    frontend_json: Mapped[str] = mapped_column(Text, default="{}")
+    installed: Mapped[bool] = mapped_column(default=False)
+    is_active: Mapped[bool] = mapped_column(default=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -237,3 +238,4 @@ class ApiKey(Base):
     key_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    call_count: Mapped[int] = mapped_column(Integer, default=0)
