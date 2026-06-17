@@ -126,6 +126,23 @@ export interface Plugin {
   updatedAt: string;
 }
 
+export interface ExtensionPlugin {
+  id: number;
+  name: string;
+  label: string;
+  category: string;
+  source: 'builtin' | 'uploaded';
+  version: string;
+  skillsJson: string | null;
+  hooksJson: string | null;
+  frontendJson: string | null;
+  installed: boolean;
+  isActive: boolean;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface App {
   id: number;
   name: string;

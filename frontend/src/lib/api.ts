@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, ExtensionPlugin, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
 // ---------- 后端返回类型 ----------
 export interface KbOut {
   id: number;
@@ -763,4 +763,24 @@ export const api = {
     await request<void>(`/api/auth/api-keys/${keyId}`, { method: 'DELETE' });
   },
 
+  // ---- Plugin Extension APIs (v2) ----
+  listExtensionPlugins: (): Promise<ExtensionPlugin[]> => {
+    return request<ExtensionPlugin[]>('/api/plugins/v2');
+  },
+
+  installExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
+    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/install`, { method: 'POST' });
+  },
+
+  activateExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
+    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/activate`, { method: 'POST' });
+  },
+
+  deactivateExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
+    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/deactivate`, { method: 'POST' });
+  },
+
+  deleteExtensionPlugin: (name: string): Promise<void> => {
+    return request<void>(`/api/plugins/v2/${name}`, { method: 'DELETE' });
+  },
 };
