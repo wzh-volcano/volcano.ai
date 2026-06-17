@@ -38,7 +38,7 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import type { Plugin } from '@/types';
+import type { ExtensionPlugin, Plugin } from '@/types';
 
 interface ConfigFormState {
   base_url: string;
@@ -54,22 +54,23 @@ const EMPTY_FORM: ConfigFormState = {
   configured_models: [],
 };
 
-type CategoryFilter = 'all' | 'model' | 'other';
+type TabFilter = 'all' | 'model' | 'skill' | 'extension';
 
 const CATEGORY_LABEL: Record<string, string> = {
   model: '模型',
-  other: '其它',
+  skill: '技能',
+  extension: '扩展',
 };
 
 export const PluginManagementPage: React.FC = () => {
   const currentUser = useAuthStore((s) => s.currentUser);
 
-  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [plugins, setPlugins] = useState<(Plugin | ExtensionPlugin)[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const [configTarget, setConfigTarget] = useState<Plugin | null>(null);
+  const [configTarget, setConfigTarget] = useState<Plugin | ExtensionPlugin | null>(null);
   const [configForm, setConfigForm] = useState<ConfigFormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
 
@@ -79,7 +80,7 @@ export const PluginManagementPage: React.FC = () => {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [modelsInfo, setModelsInfo] = useState<string | null>(null);
 
-  const [deleteTarget, setDeleteTarget] = useState<Plugin | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Plugin | ExtensionPlugin | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -95,7 +96,7 @@ export const PluginManagementPage: React.FC = () => {
   const [importing, setImporting] = useState(false);
 
   const [query, setQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
+  const [tabFilter, setTabFilter] = useState<TabFilter>('all');
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -103,8 +104,11 @@ export const PluginManagementPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.listPlugins();
-      setPlugins(data);
+      const [modelPlugins, extPlugins] = await Promise.all([
+        api.listPlugins(),
+        api.listExtensionPlugins(),
+      ]);
+      setPlugins([...modelPlugins, ...extPlugins]);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {
@@ -117,23 +121,23 @@ export const PluginManagementPage: React.FC = () => {
   }, [isAdmin]);
 
   const counts = useMemo(() => {
-    const byCat: Record<string, number> = { model: 0, other: 0 };
+    const byCat: Record<string, number> = { model: 0, skill: 0, extension: 0 };
     for (const p of plugins) {
       const c = p.category || 'model';
       byCat[c] = (byCat[c] ?? 0) + 1;
     }
-    return { all: plugins.length, model: byCat.model ?? 0, other: byCat.other ?? 0 };
+    return { all: plugins.length, model: byCat.model ?? 0, skill: byCat.skill ?? 0, extension: byCat.extension ?? 0 };
   }, [plugins]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return plugins.filter((p) => {
       const cat = p.category || 'model';
-      if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
+      if (tabFilter !== 'all' && cat !== tabFilter) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
     });
-  }, [plugins, query, categoryFilter]);
+  }, [plugins, query, tabFilter]);
 
   const flash = (msg: string) => {
     setInfo(msg);
@@ -141,7 +145,7 @@ export const PluginManagementPage: React.FC = () => {
   };
 
   // ---------- 配置 ----------
-  const openConfig = (p: Plugin) => {
+  const openConfig = (p: Plugin | ExtensionPlugin) => {
     let configured: { name: string; context: number }[] = [];
     const extraJson = (p as any).extraJson;
     if (extraJson) {
@@ -153,10 +157,11 @@ export const PluginManagementPage: React.FC = () => {
       } catch { /* ignore */ }
     }
     setConfigTarget(p);
+    const plugin = p as Plugin;
     setConfigForm({
-      base_url: p.baseUrl,
+      base_url: plugin.baseUrl,
       api_key: '',
-      embedding_model: p.embeddingModel,
+      embedding_model: plugin.embeddingModel,
       configured_models: configured,
     });
     setManualModelName('');
@@ -295,9 +300,13 @@ export const PluginManagementPage: React.FC = () => {
   };
 
   // ---------- 安装 / 激活 / 卸载 ----------
-  const handleInstall = async (p: Plugin) => {
+  const handleInstall = async (p: Plugin | ExtensionPlugin) => {
     try {
-      await api.installPlugin(p.name);
+      if (p.category === 'model') {
+        await api.installPlugin(p.name);
+      } else {
+        await api.installExtensionPlugin(p.name);
+      }
       await loadPlugins();
       flash(`已安装 ${p.label}`);
     } catch (e) {
@@ -305,16 +314,16 @@ export const PluginManagementPage: React.FC = () => {
     }
   };
 
-  const handleToggleActive = async (p: Plugin, isLlm: boolean) => {
+  const handleToggleActive = async (p: Plugin | ExtensionPlugin, isLlm: boolean) => {
     try {
       await api.updatePlugin(p.name, {
         is_active: isLlm ? !p.isActive : undefined,
-        is_embedding_active: !isLlm ? !p.isEmbeddingActive : undefined,
+        is_embedding_active: !isLlm ? ('isEmbeddingActive' in p ? !p.isEmbeddingActive : false) : undefined,
       });
       await loadPlugins();
       if (isLlm) {
         flash(p.isActive ? `已关闭 ${p.label} LLM` : `已开启 ${p.label} LLM`);
-      } else {
+      } else if ('isEmbeddingActive' in p) {
         flash(p.isEmbeddingActive ? `已关闭 ${p.label} Embedding` : `已开启 ${p.label} Embedding`);
       }
     } catch (e) {
@@ -322,12 +331,38 @@ export const PluginManagementPage: React.FC = () => {
     }
   };
 
+  const handleExtensionAction = async (plugin: ExtensionPlugin, action: 'install' | 'activate' | 'deactivate' | 'delete') => {
+    try {
+      switch (action) {
+        case 'install':
+          await api.installExtensionPlugin(plugin.name);
+          break;
+        case 'activate':
+          await api.activateExtensionPlugin(plugin.name);
+          break;
+        case 'deactivate':
+          await api.deactivateExtensionPlugin(plugin.name);
+          break;
+        case 'delete':
+          await api.deleteExtensionPlugin(plugin.name);
+          break;
+      }
+      await loadPlugins();
+    } catch (err: any) {
+      setError(err.message || '操作失败');
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await api.deletePlugin(deleteTarget.name);
+      if (deleteTarget.category === 'model') {
+        await api.deletePlugin(deleteTarget.name);
+      } else {
+        await api.deleteExtensionPlugin(deleteTarget.name);
+      }
       await loadPlugins();
-      flash(deleteTarget.source === 'uploaded' ? '插件已卸载' : '插件已重置');
+      flash('插件已卸载');
       setDeleteTarget(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : '操作失败');
@@ -424,26 +459,19 @@ export const PluginManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 分类筛选 */}
-      <div className="flex items-center gap-2 px-6 py-3 border-b border-border shrink-0">
-        <span className="text-2xs text-text-mute mr-1">分类：</span>
-        {(
-          [
-            { key: 'all', label: `全部 (${counts.all})` },
-            { key: 'model', label: `模型 (${counts.model})` },
-            { key: 'other', label: `其它 (${counts.other})` },
-          ] as { key: CategoryFilter; label: string }[]
-        ).map((opt) => (
+      {/* 分类 Tab */}
+      <div className="flex gap-2 px-6 py-3 border-b border-border shrink-0">
+        {(['all', 'model', 'skill', 'extension'] as const).map(tab => (
           <button
-            key={opt.key}
-            onClick={() => setCategoryFilter(opt.key)}
-            className={`px-2.5 py-1 rounded-full text-2xs transition-colors ${
-              categoryFilter === opt.key
-                ? 'bg-accent/15 text-accent border border-accent/30'
-                : 'bg-bg-2 text-text-dim border border-border hover:bg-bg-3'
+            key={tab}
+            onClick={() => setTabFilter(tab)}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tabFilter === tab
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent'
             }`}
           >
-            {opt.label}
+              {tab === 'all' ? `全部 (${counts.all})` : tab === 'model' ? `模型 (${counts.model})` : tab === 'skill' ? `技能 (${counts.skill ?? 0})` : `扩展 (${counts.extension ?? 0})`}
           </button>
         ))}
       </div>
@@ -507,13 +535,13 @@ export const PluginManagementPage: React.FC = () => {
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-text font-medium">{p.label}</span>
-                              {p.isActive && (
+                              {p.category === 'model' && p.isActive && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-accent/15 text-accent">
                                   <CheckCircle2 size={10} />
                                   当前 LLM
                                 </span>
                               )}
-                              {p.isEmbeddingActive && (
+                              {'isEmbeddingActive' in p && p.isEmbeddingActive && (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-info/15 text-info">
                                   <CheckCircle2 size={10} />
                                   当前 Embedding
@@ -523,6 +551,30 @@ export const PluginManagementPage: React.FC = () => {
                             <div className="text-2xs text-text-mute font-mono mt-0.5">
                               {p.name}
                             </div>
+                            {p.category === 'skill' && (p as unknown as ExtensionPlugin).skillsJson && (
+                              <div className="mt-1.5 space-y-0.5">
+                                <p className="text-2xs font-medium text-text-dim">技能文件：</p>
+                                {Object.entries(JSON.parse((p as unknown as ExtensionPlugin).skillsJson!)).map(([name, desc]) => (
+                                  <div key={name} className="flex items-center gap-1.5 text-2xs px-1.5 py-0.5 bg-muted/50 rounded">
+                                    <span>{name}</span>
+                                    <span className="text-text-mute">— {desc as string}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {p.category === 'extension' && (p as unknown as ExtensionPlugin).frontendJson && (
+                              <div className="mt-1.5 space-y-0.5">
+                                <p className="text-2xs font-medium text-text-dim">挂载点：</p>
+                                {(() => {
+                                  try {
+                                    const frontend = JSON.parse((p as unknown as ExtensionPlugin).frontendJson!);
+                                    return frontend.extension_points?.map((ep: string) => (
+                                      <span key={ep} className="inline-block text-2xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded mr-1">{ep}</span>
+                                    ));
+                                  } catch { return null; }
+                                })()}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -568,7 +620,7 @@ export const PluginManagementPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-2xs text-text-dim space-y-0.5">
-                          {p.baseUrl ? (
+                          {'baseUrl' in p && p.baseUrl ? (
                             <div className="font-mono truncate max-w-[220px]" title={p.baseUrl}>
                               {p.baseUrl}
                             </div>
@@ -576,13 +628,13 @@ export const PluginManagementPage: React.FC = () => {
                             <div className="text-text-mute">未配置</div>
                           )}
                           <div className="flex items-center gap-2">
-                            {p.apiKeySet && <span className="text-success">key ✓</span>}
+                            {'apiKeySet' in p && p.apiKeySet && <span className="text-success">key ✓</span>}
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {p.installed && !p.error && (
+                          {p.category === 'model' && p.installed && !p.error && (
                             <>
                               <button
                                 className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
@@ -597,12 +649,12 @@ export const PluginManagementPage: React.FC = () => {
                               </button>
                               <button
                                 className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
-                                  p.isEmbeddingActive
+                                  'isEmbeddingActive' in p && p.isEmbeddingActive
                                     ? 'bg-info/15 text-info hover:bg-info/25'
                                     : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
                                 }`}
                                 onClick={() => handleToggleActive(p, false)}
-                                title={p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
+                                title={'isEmbeddingActive' in p && p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
                               >
                                 E
                               </button>
@@ -626,21 +678,38 @@ export const PluginManagementPage: React.FC = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-36">
-                              <DropdownMenuItem onClick={() => openConfig(p)}>
-                                <Settings size={14} />
-                                配置
-                              </DropdownMenuItem>
-                              {p.installed && !p.error && (
+                              {p.category === 'model' && (
+                                <DropdownMenuItem onClick={() => openConfig(p)}>
+                                  <Settings size={14} />
+                                  配置
+                                </DropdownMenuItem>
+                              )}
+                              {p.category === 'model' && p.installed && !p.error && (
                                 <DropdownMenuItem onClick={() => handleToggleActive(p, true)}>
                                   <Power size={14} />
                                   {p.isActive ? '关闭 LLM' : '开启 LLM'}
                                 </DropdownMenuItem>
                               )}
-                              {p.installed && !p.error && (
+                              {p.category === 'model' && p.installed && !p.error && (
                                 <DropdownMenuItem onClick={() => handleToggleActive(p, false)}>
                                   <Power size={14} />
-                                  {p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
+                                  {'isEmbeddingActive' in p && p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
                                 </DropdownMenuItem>
+                              )}
+                              {p.category !== 'model' && !(p as unknown as ExtensionPlugin).installed && (
+                                <DropdownMenuItem onClick={() => handleExtensionAction(p as unknown as ExtensionPlugin, 'install')}>
+                                  <Package size={14} className="mr-2" />
+                                  安装
+                                </DropdownMenuItem>
+                              )}
+                              {p.category !== 'model' && (p as unknown as ExtensionPlugin).installed && (
+                                <>
+                                  <DropdownMenuItem onClick={() => handleExtensionAction(p as unknown as ExtensionPlugin, (p as unknown as ExtensionPlugin).isActive ? 'deactivate' : 'activate')}>
+                                    <Power size={14} className="mr-2" />
+                                    {(p as unknown as ExtensionPlugin).isActive ? '停用' : '激活'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                </>
                               )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
@@ -648,7 +717,7 @@ export const PluginManagementPage: React.FC = () => {
                                 className="text-error focus:text-error"
                               >
                                 <Trash2 size={14} />
-                                {p.source === 'uploaded' ? '卸载' : '重置'}
+                                {p.category === 'model' && p.source === 'uploaded' ? '卸载' : p.category !== 'model' ? '卸载' : '重置'}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -690,7 +759,7 @@ export const PluginManagementPage: React.FC = () => {
             <div className="grid gap-2">
               <Label htmlFor="cfg-api-key">
                 API Key{' '}
-                {configTarget?.apiKeySet && (
+                {(configTarget as Plugin)?.apiKeySet && (
                   <span className="text-2xs text-text-mute ml-1">（留空表示不修改）</span>
                 )}
               </Label>
@@ -701,7 +770,7 @@ export const PluginManagementPage: React.FC = () => {
                 onChange={(e) =>
                   setConfigForm({ ...configForm, api_key: e.target.value })
                 }
-                placeholder={configTarget?.apiKeySet ? '已设置，留空保持不变' : 'sk-...'}
+                placeholder={(configTarget as Plugin)?.apiKeySet ? '已设置，留空保持不变' : 'sk-...'}
               />
             </div>
             <div className="grid gap-2">
