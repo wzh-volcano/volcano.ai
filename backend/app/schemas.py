@@ -328,3 +328,48 @@ class AppChatRequest(BaseModel):
 
 class AppCompressRequest(BaseModel):
     messages: list[ChatMessage]
+
+
+# ---------- Conversation ----------
+class ConversationCreate(BaseModel):
+    title: str = ""
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = None
+    summary: str | None = None
+
+
+class ConversationOut(BaseModel):
+    id: int
+    app_id: int
+    title: str
+    summary: str | None = None
+    message_count: int
+    owner_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MessageOut(BaseModel):
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    token_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MessageCreate(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1)
+
+
+class MessagesBatchCreate(BaseModel):
+    messages: list[MessageCreate] = Field(..., min_length=1)
