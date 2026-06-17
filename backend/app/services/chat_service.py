@@ -9,8 +9,13 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from sqlalchemy.orm import Session
 
 from ..models import App, KnowledgeBase
+from ..plugins.hooks import HookDispatcher
+from ..plugins.skill_loader import SkillInjector
 from ..providers import get_current, get_current_embedding, get_provider
 from ..rag import vectorstore
+
+_skill_injector = SkillInjector()
+_hook_dispatcher = HookDispatcher()
 
 
 def chat_with_app_config(
@@ -26,7 +31,18 @@ def chat_with_app_config(
     """
     config = json.loads(app.config_json or "{}")
 
+    # ---- pre_chat hooks ----
+    question, _ = _hook_dispatcher.dispatch_pre_chat(question, {}, db)
+
     system_prompt = config.get("prompt", "") or "你是一个有用的 AI 助手。"
+    # ---- skill injection ----
+    enabled_skills = _skill_injector.get_enabled_skills(db)
+    if enabled_skills:
+        matched = _skill_injector.match(question, enabled_skills)
+        if matched:
+            skill_section = "\n\n---\n## 技能指南\n\n" + "\n\n".join(matched)
+            system_prompt += skill_section
+
     kb_ids = config.get("kb_ids", [])
 
     # 组装知识库上下文
@@ -88,10 +104,13 @@ def chat_with_app_config(
             yield "data: {\"done\": true}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # Note: post_chat hooks are not applied to SSE streams
     else:
         chain = prompt | llm | StrOutputParser()
         try:
             answer = chain.invoke(input_vars)
+            # ---- post_chat hook ----
+            answer = _hook_dispatcher.dispatch_post_chat(question, answer, {}, db)
             return {"answer": answer}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"调用模型失败：{str(e)}")
