@@ -48,12 +48,19 @@ def _read_manifest(plugin_dir: Path) -> dict:
     except json.JSONDecodeError as e:
         raise PluginError(f"manifest.json 解析失败: {e}") from e
 
-    for key in ("name", "label", "entry"):
+    required_keys = ["name", "label"]
+    category = manifest.get("category", "model")
+    if category == "model":
+        required_keys.append("entry")
+    for key in required_keys:
         if key not in manifest:
             raise PluginError(f"manifest.json 缺少字段: {key}")
+
     if not NAME_RE.match(manifest["name"]):
         raise PluginError(f"非法插件名: {manifest['name']}")
-    if ":" not in manifest["entry"]:
+
+    entry = manifest.get("entry", "")
+    if entry and ":" not in entry:
         raise PluginError("entry 必须形如 'module:Class'")
     return manifest
 
@@ -100,17 +107,19 @@ def install_from_upload(content: bytes, filename: str) -> tuple[str, str | None]
             shutil.rmtree(target)
         shutil.copytree(manifest_dir, target)
 
-    # 尝试 import
+    # 尝试 import（仅当有 entry 时）
     error: str | None = None
-    try:
-        target_str = str((plugins_root() / name).resolve())
-        if target_str not in sys.path:
-            sys.path.insert(0, target_str)
-        mod_name, _, cls_name = manifest["entry"].partition(":")
-        module = importlib.import_module(mod_name)
-        getattr(module, cls_name)  # 确保类存在
-    except Exception as e:  # noqa: BLE001
-        error = f"{type(e).__name__}: {e}"
+    entry = manifest.get("entry", "")
+    if entry:
+        try:
+            target_str = str((plugins_root() / name).resolve())
+            if target_str not in sys.path:
+                sys.path.insert(0, target_str)
+            mod_name, _, cls_name = entry.partition(":")
+            module = importlib.import_module(mod_name)
+            getattr(module, cls_name)  # 确保类存在
+        except Exception as e:  # noqa: BLE001
+            error = f"{type(e).__name__}: {e}"
 
     return name, error
 
