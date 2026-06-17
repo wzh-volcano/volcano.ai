@@ -1,0 +1,157 @@
+"""Extension 插件管理路由（管理员专属）。
+
+注意：本模块刻意不使用 ``from __future__ import annotations``，
+因为 FastAPI 会读取真实的返回注解判断是否需要序列化响应体；
+若注解被字符串化，DELETE 204 端点会被误判为有 response_model。
+"""
+import json
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from .. import schemas
+from ..database import get_db
+from ..deps import get_current_admin
+from ..models import PluginExtension, User
+
+router = APIRouter(prefix="/api/plugins/v2", tags=["plugins-v2"])
+
+
+def _to_out(p: PluginExtension) -> schemas.ExtensionPluginOut:
+    return schemas.ExtensionPluginOut(
+        id=p.id,
+        name=p.name,
+        label=p.label,
+        category=p.category,
+        source=p.source,
+        version=p.version or "",
+        skills_json=maybe_load_json(p.skills_json),
+        hooks_json=maybe_load_json(p.hooks_json),
+        frontend_json=maybe_load_json(p.frontend_json),
+        installed=p.installed,
+        is_active=p.is_active,
+        error=p.error,
+        created_at=p.created_at,
+        updated_at=p.updated_at,
+    )
+
+
+def maybe_load_json(val: str | None) -> str | None:
+    if not val:
+        return None
+    try:
+        json.loads(val)
+        return val
+    except json.JSONDecodeError:
+        return None
+
+
+@router.get("", response_model=list[schemas.ExtensionPluginOut])
+def list_extension_plugins(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> list[schemas.ExtensionPluginOut]:
+    rows = db.scalars(
+        select(PluginExtension).order_by(PluginExtension.id)
+    ).all()
+    return [_to_out(p) for p in rows]
+
+
+@router.post("/{name}/install", response_model=schemas.ExtensionPluginOut)
+def install_extension(
+    name: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.ExtensionPluginOut:
+    row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+    if row.error:
+        raise HTTPException(status_code=400, detail=f"插件加载失败：{row.error}")
+    row.installed = True
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.post("/{name}/activate", response_model=schemas.ExtensionPluginOut)
+def activate_extension(
+    name: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.ExtensionPluginOut:
+    row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+    if not row.installed:
+        raise HTTPException(status_code=400, detail="请先安装后再激活")
+    if row.error:
+        raise HTTPException(status_code=400, detail=f"插件存在错误：{row.error}")
+    row.is_active = True
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.post("/{name}/deactivate", response_model=schemas.ExtensionPluginOut)
+def deactivate_extension(
+    name: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.ExtensionPluginOut:
+    row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+    row.is_active = False
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.patch("/{name}/skills", response_model=schemas.ExtensionPluginOut)
+def update_skill_config(
+    name: str,
+    payload: schemas.ExtensionPluginSkillUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> schemas.ExtensionPluginOut:
+    row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+
+    try:
+        skills = json.loads(row.skills_json or "{}")
+    except json.JSONDecodeError:
+        skills = {}
+
+    skill_entry = skills.get(payload.name)
+    if skill_entry is None:
+        raise HTTPException(status_code=404, detail=f"技能 {payload.name} 不存在")
+
+    skill_entry["keywords"] = payload.keywords
+    skill_entry["match_mode"] = payload.match_mode
+    skills[payload.name] = skill_entry
+    row.skills_json = json.dumps(skills, ensure_ascii=False)
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.delete("/{name}", status_code=204)
+def delete_extension(
+    name: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> None:
+    row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+    if row is None:
+        raise HTTPException(status_code=404, detail="插件不存在")
+
+    from ..services.plugin_loader import PluginError, uninstall
+    try:
+        uninstall(name)
+    except PluginError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.delete(row)
+    db.commit()

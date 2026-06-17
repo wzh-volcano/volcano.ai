@@ -247,6 +247,33 @@ class PluginInstallResponse(BaseModel):
     error: str | None = None
 
 
+class ExtensionPluginOut(BaseModel):
+    id: int
+    name: str
+    label: str
+    category: str
+    source: str
+    version: str
+    skills_json: str | None = None
+    hooks_json: str | None = None
+    frontend_json: str | None = None
+    installed: bool
+    is_active: bool
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ExtensionPluginSkillUpdate(BaseModel):
+    """Update skill keywords / match mode."""
+    name: str
+    keywords: list[str]
+    match_mode: str = "keyword"
+
+
 class PluginImportRequest(BaseModel):
     """通过 URL 导入插件。"""
 
