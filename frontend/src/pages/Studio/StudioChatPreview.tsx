@@ -113,12 +113,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pausedRef = useRef(false);
-  const lastUserMsgIndex = useRef(-1);
-  const messagesRef = useRef(messages);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  const pendingSave = useRef<{ userContent: string; assistantContent: string } | null>(null);
 
   const storeConvId = useConversationStore((s) => s.currentConvId);
   const storeMessages = useConversationStore((s) => s.messages);
@@ -132,7 +127,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
     if (effectiveConvId && storeConvId !== effectiveConvId) {
       storeSelectConversation(effectiveConvId);
     }
-  }, [effectiveConvId]);
+  }, [effectiveConvId, storeSelectConversation]);
 
   useEffect(() => {
     if (storeConvId === effectiveConvId && storeMessages.length > 0) {
@@ -224,6 +219,9 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
             const parsed = JSON.parse(data);
             if (parsed.done) { streamDone = true; break; }
             if (parsed.token) {
+              if (pendingSave.current) {
+                pendingSave.current.assistantContent += parsed.token;
+              }
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
@@ -241,12 +239,12 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
           }
         }
       }
-      if (effectiveConvId && lastUserMsgIndex.current >= 0) {
-        const msgs = messagesRef.current.slice(lastUserMsgIndex.current);
-        if (msgs.length >= 2) {
-          storeAddMessages(effectiveConvId, msgs.map((m) => ({ role: m.role, content: m.content })));
-        }
-        lastUserMsgIndex.current = -1;
+      if (effectiveConvId && pendingSave.current) {
+        storeAddMessages(effectiveConvId, [
+          { role: 'user', content: pendingSave.current.userContent },
+          { role: 'assistant', content: pendingSave.current.assistantContent },
+        ]);
+        pendingSave.current = null;
       }
     } catch (e: any) {
       if (e.name !== 'AbortError') {
@@ -260,17 +258,14 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
       pausedRef.current = false;
       abortRef.current = null;
     }
-  }, [appId]);
+  }, [appId, effectiveConvId, storeAddMessages]);
 
   const handleSend = useCallback(async () => {
     const q = input.trim();
     if (!q || sending) return;
 
-    setMessages((prev) => {
-      const newMsgs = [...prev, { role: 'user' as const, content: q }];
-      lastUserMsgIndex.current = prev.length;
-      return newMsgs;
-    });
+    pendingSave.current = { userContent: q, assistantContent: '' };
+    setMessages((prev) => [...prev, { role: 'user' as const, content: q }]);
     setInput('');
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
     await startStream(q);
@@ -314,7 +309,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
     } finally {
       setCompressing(false);
     }
-  }, [messages, appId, compressing, sending, paused]);
+  }, [messages, appId, compressing, sending, paused, effectiveConvId, storeUpdateSummary]);
 
   return (
     <>
