@@ -26,6 +26,7 @@ from .routers import (
     knowledge_bases,
     plugins,
     providers,
+    public_api,
     skills,
     users,
 )
@@ -98,6 +99,7 @@ app.include_router(users.router)
 app.include_router(apps.router)
 app.include_router(skills.router)
 app.include_router(conversations.router)
+app.include_router(public_api.router)
 
 
 @app.get("/api/health", tags=["meta"])
