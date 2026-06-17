@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "node ../scripts/scan-plugin-components.js && vite",
+    "build": "node ../scripts/scan-plugin-components.js && tsc && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit"
   },

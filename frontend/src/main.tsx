@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { router } from '@/router'
+import './plugin-components.generated'
 import './styles/global.less'
 
 const savedTheme = localStorage.getItem('volcano_theme');
