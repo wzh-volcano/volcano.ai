@@ -102,6 +102,14 @@ def load_uploaded_plugins() -> list[tuple[str, str | None]]:
         except Exception as e:  # noqa: BLE001
             name = sub.name
             results.append((name, f"{type(e).__name__}: {e}"))
+
+    # Also register uploaded non-model plugins into unified registry
+    from ..plugins.registry import register_plugin  # noqa: PLC0415
+
+    for name, (cls, label, mp, source, category) in list(_REGISTRY.items()):
+        if category != "model":
+            register_plugin(name, cls, label, source, category)
+
     return results
 
 
