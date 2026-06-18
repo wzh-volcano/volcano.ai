@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,9 +16,9 @@ logger = logging.getLogger(__name__)
 class McpServerInfo:
     name: str = ""
     session: ClientSession | None = None
-    tools: list[dict] = field(default_factory=list)
+    tools: list[dict[str, Any]] = field(default_factory=list)
     entry: str = ""
-    env: dict = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
     _cm_stdio: object | None = field(default=None, repr=False)
     _cm_session: object | None = field(default=None, repr=False)
 
@@ -45,9 +46,10 @@ class MCPClientManager:
             logger.info("MCP plugin %s started with %d tools", name, len(info.tools))
             return info.tools
         except Exception:
+            exc = sys.exc_info()
             if cm_session:
-                await cm_session.__aexit__(None, None, None)
-            await cm_stdio.__aexit__(None, None, None)
+                await cm_session.__aexit__(*exc)
+            await cm_stdio.__aexit__(*exc)
             raise
 
     async def stop_plugin(self, name: str):
