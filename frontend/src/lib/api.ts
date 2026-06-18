@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, ExtensionPlugin, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, ExtensionPlugin, ExtensionPluginOut, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
 // ---------- 后端返回类型 ----------
 export interface KbOut {
   id: number;
@@ -234,6 +234,25 @@ function mapPlugin(p: PluginOut): Plugin {
     error: p.error,
     createdAt: formatDate(p.created_at),
     updatedAt: formatDate(p.updated_at),
+  };
+}
+
+function mapExtensionPlugin(p: ExtensionPluginOut): ExtensionPlugin {
+  return {
+    id: p.id,
+    name: p.name,
+    label: p.label,
+    category: p.category,
+    source: p.source,
+    version: p.version,
+    skillsJson: p.skills_json,
+    hooksJson: p.hooks_json,
+    frontendJson: p.frontend_json,
+    installed: p.installed,
+    isActive: p.is_active,
+    error: p.error,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
   };
 }
 
@@ -552,9 +571,10 @@ export const api = {
   },
 
   /** 上传 zip 安装插件 */
-  uploadPlugin: async (file: File): Promise<PluginInstallResponse> => {
+  uploadPlugin: async (file: File, pluginType?: string): Promise<PluginInstallResponse> => {
     const form = new FormData();
     form.append('file', file);
+    if (pluginType) form.append('type', pluginType);
     return request<PluginInstallResponse>('/api/plugins/upload', {
       method: 'POST',
       body: form,
@@ -764,23 +784,36 @@ export const api = {
   },
 
   // ---- Plugin Extension APIs (v2) ----
-  listExtensionPlugins: (): Promise<ExtensionPlugin[]> => {
-    return request<ExtensionPlugin[]>('/api/plugins/v2');
+  listExtensionPlugins: async (): Promise<ExtensionPlugin[]> => {
+    const raw = await request<ExtensionPluginOut[]>('/api/plugins/v2');
+    return raw.map(mapExtensionPlugin);
   },
 
-  installExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
-    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/install`, { method: 'POST' });
+  installExtensionPlugin: async (name: string): Promise<ExtensionPlugin> => {
+    const raw = await request<ExtensionPluginOut>(`/api/plugins/v2/${name}/install`, { method: 'POST' });
+    return mapExtensionPlugin(raw);
   },
 
-  activateExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
-    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/activate`, { method: 'POST' });
+  activateExtensionPlugin: async (name: string): Promise<ExtensionPlugin> => {
+    const raw = await request<ExtensionPluginOut>(`/api/plugins/v2/${name}/activate`, { method: 'POST' });
+    return mapExtensionPlugin(raw);
   },
 
-  deactivateExtensionPlugin: (name: string): Promise<ExtensionPlugin> => {
-    return request<ExtensionPlugin>(`/api/plugins/v2/${name}/deactivate`, { method: 'POST' });
+  deactivateExtensionPlugin: async (name: string): Promise<ExtensionPlugin> => {
+    const raw = await request<ExtensionPluginOut>(`/api/plugins/v2/${name}/deactivate`, { method: 'POST' });
+    return mapExtensionPlugin(raw);
   },
 
   deleteExtensionPlugin: (name: string): Promise<void> => {
     return request<void>(`/api/plugins/v2/${name}`, { method: 'DELETE' });
+  },
+
+  updateSkillKeywords: async (name: string, data: { name: string; keywords: string[]; match_mode: string }): Promise<ExtensionPlugin> => {
+    const raw = await request<ExtensionPluginOut>(`/api/plugins/v2/${name}/skills`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return mapExtensionPlugin(raw);
   },
 };

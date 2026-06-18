@@ -82,9 +82,18 @@ export const PluginManagementPage: React.FC = () => {
 
   const [deleteTarget, setDeleteTarget] = useState<Plugin | ExtensionPlugin | null>(null);
 
+  // 技能关键字配置
+  const [skillConfig, setSkillConfig] = useState<{
+    pluginName: string;
+    skillName: string;
+    keywords: string;
+    matchMode: string;
+  } | null>(null);
+
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadType, setUploadType] = useState<string>('skill');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
@@ -374,7 +383,7 @@ export const PluginManagementPage: React.FC = () => {
     if (!uploadFile) return;
     setUploading(true);
     try {
-      const result = await api.uploadPlugin(uploadFile);
+      const result = await api.uploadPlugin(uploadFile, uploadType);
       await loadPlugins();
       if (result.error) {
         setError(`插件已保存，但加载失败：${result.error}`);
@@ -524,7 +533,7 @@ export const PluginManagementPage: React.FC = () => {
                   const cat = p.category || 'model';
                   return (
                     <tr
-                      key={p.id}
+                      key={`plg-${p.name}`}
                       className="border-b border-border last:border-b-0 hover:bg-bg-hover transition-colors"
                     >
                       <td className="px-4 py-3">
@@ -554,12 +563,41 @@ export const PluginManagementPage: React.FC = () => {
                             {p.category === 'skill' && (p as unknown as ExtensionPlugin).skillsJson && (
                               <div className="mt-1.5 space-y-0.5">
                                 <p className="text-2xs font-medium text-text-dim">技能文件：</p>
-                                {Object.entries(JSON.parse((p as unknown as ExtensionPlugin).skillsJson!)).map(([name, desc]) => (
+                                {Object.entries(JSON.parse((p as unknown as ExtensionPlugin).skillsJson!)).map(([name, desc]) => {
+                                  const descVal = typeof desc === 'object' ? desc as any : null;
+                                  const kw: string[] = descVal?.keywords || [];
+                                  const mm = descVal?.match_mode || 'keyword';
+                                  return (
                                   <div key={name} className="flex items-center gap-1.5 text-2xs px-1.5 py-0.5 bg-muted/50 rounded">
-                                    <span>{name}</span>
-                                    <span className="text-text-mute">— {desc as string}</span>
+                                    <span className="font-medium">{name}</span>
+                                    {kw.length > 0 ? (
+                                      <span className="text-text-mute truncate max-w-[200px]" title={kw.join(', ')}>
+                                        触发: {kw.join(', ')}
+                                      </span>
+                                    ) : (
+                                      <span className="text-text-mute">未设关键字</span>
+                                    )}
+                                    <span className={`px-1 rounded text-2xs ${mm === 'always' ? 'bg-accent/10 text-accent' : 'bg-bg-3 text-text-mute'}`}>
+                                      {mm === 'always' ? '始终' : '关键字'}
+                                    </span>
+                                    {p.installed && p.isActive && (
+                                      <button
+                                        onClick={() => {
+                                          setSkillConfig({
+                                            pluginName: p.name,
+                                            skillName: name,
+                                            keywords: kw.join(', '),
+                                            matchMode: mm,
+                                          });
+                                        }}
+                                        className="text-accent hover:text-accent-hover ml-auto shrink-0"
+                                      >
+                                        配置
+                                      </button>
+                                    )}
                                   </div>
-                                ))}
+                                );
+                              })}
                               </div>
                             )}
                             {p.category === 'extension' && (p as unknown as ExtensionPlugin).frontendJson && (
@@ -634,30 +672,47 @@ export const PluginManagementPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {p.category === 'model' && p.installed && !p.error && (
+                          {p.installed && !p.error && (
                             <>
-                              <button
-                                className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
-                                  p.isActive
-                                    ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                                    : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
-                                }`}
-                                onClick={() => handleToggleActive(p, true)}
-                                title={p.isActive ? '关闭 LLM' : '开启 LLM'}
-                              >
-                                LLM
-                              </button>
-                              <button
-                                className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
-                                  'isEmbeddingActive' in p && p.isEmbeddingActive
-                                    ? 'bg-info/15 text-info hover:bg-info/25'
-                                    : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
-                                }`}
-                                onClick={() => handleToggleActive(p, false)}
-                                title={'isEmbeddingActive' in p && p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
-                              >
-                                E
-                              </button>
+                              {p.category === 'model' && (
+                                <>
+                                  <button
+                                    className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
+                                      p.isActive
+                                        ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                                        : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
+                                    }`}
+                                    onClick={() => handleToggleActive(p, true)}
+                                    title={p.isActive ? '关闭 LLM' : '开启 LLM'}
+                                  >
+                                    LLM
+                                  </button>
+                                  <button
+                                    className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
+                                      'isEmbeddingActive' in p && p.isEmbeddingActive
+                                        ? 'bg-info/15 text-info hover:bg-info/25'
+                                        : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
+                                    }`}
+                                    onClick={() => handleToggleActive(p, false)}
+                                    title={'isEmbeddingActive' in p && p.isEmbeddingActive ? '关闭 Embedding' : '开启 Embedding'}
+                                  >
+                                    E
+                                  </button>
+                                </>
+                              )}
+                              {p.category !== 'model' && (
+                                <button
+                                  className={`w-7 h-7 inline-flex items-center justify-center rounded text-xs transition-colors ${
+                                    (p as unknown as ExtensionPlugin).isActive
+                                      ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                                      : 'bg-bg-3 text-text-mute hover:text-text hover:bg-bg-hover border border-border'
+                                  }`}
+                                  onClick={() => handleExtensionAction(p as unknown as ExtensionPlugin, (p as unknown as ExtensionPlugin).isActive ? 'deactivate' : 'activate')}
+                                  title={(p as unknown as ExtensionPlugin).isActive ? '停用' : '激活'}
+                                >
+                                  <Power size={12} />
+                                </button>
+                              )}
                             </>
                           )}
                           {!p.installed && !p.error && (
@@ -945,6 +1000,70 @@ export const PluginManagementPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* 技能关键字配置 */}
+      <Dialog
+        open={!!skillConfig}
+        onOpenChange={(open) => !open && setSkillConfig(null)}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>技能配置</DialogTitle>
+            <DialogDescription>
+              配置技能 {skillConfig?.skillName} 的触发关键字和匹配模式
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-1">
+            <div className="space-y-1.5">
+              <Label>匹配模式</Label>
+              <select
+                className="w-full h-9 rounded-md border border-border bg-bg px-3 text-sm outline-none focus:border-accent"
+                value={skillConfig?.matchMode ?? 'keyword'}
+                onChange={(e) =>
+                  setSkillConfig((prev) => prev ? { ...prev, matchMode: e.target.value } : null)
+                }
+              >
+                <option value="keyword">关键字匹配（子串匹配）</option>
+                <option value="always">始终注入</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>关键字（逗号分隔）</Label>
+              <Input
+                placeholder="布局, 响应式, 设计"
+                value={skillConfig?.keywords ?? ''}
+                onChange={(e) =>
+                  setSkillConfig((prev) => prev ? { ...prev, keywords: e.target.value } : null)
+                }
+              />
+              <p className="text-2xs text-text-mute">用户消息中包含任意关键字时，此技能会自动注入到对话上下文</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSkillConfig(null)}>
+              取消
+            </Button>
+            <Button onClick={async () => {
+              if (!skillConfig) return;
+              try {
+                const kw = skillConfig.keywords.split(',').map((k) => k.trim()).filter(Boolean);
+                await api.updateSkillKeywords(skillConfig.pluginName, {
+                  name: skillConfig.skillName,
+                  keywords: kw,
+                  match_mode: skillConfig.matchMode,
+                });
+                setSkillConfig(null);
+                setInfo(`技能 ${skillConfig.skillName} 配置已保存`);
+                await loadPlugins();
+              } catch (e) {
+                setError(`配置失败：${e instanceof Error ? e.message : String(e)}`);
+              }
+            }}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 删除/重置确认 */}
       <Dialog
         open={!!deleteTarget}
@@ -987,7 +1106,7 @@ export const PluginManagementPage: React.FC = () => {
         open={uploadOpen}
         onOpenChange={(open) => {
           setUploadOpen(open);
-          if (!open) setUploadFile(null);
+          if (!open) { setUploadFile(null); setUploadType('skill'); }
         }}
       >
         <DialogContent className="sm:max-w-[440px]">
@@ -999,6 +1118,17 @@ export const PluginManagementPage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs text-text-dim">插件类型</label>
+              <select
+                value={uploadType}
+                onChange={(e) => setUploadType(e.target.value)}
+                className="w-full bg-bg-3 border border-border rounded-lg px-3 py-2 text-xs text-text outline-none"
+              >
+                <option value="skill">Skill</option>
+                <option value="mcp_server">MCP Server</option>
+              </select>
+            </div>
             <div
               onClick={() => fileInputRef.current?.click()}
               className="flex flex-col items-center justify-center px-4 py-8 rounded-lg border border-dashed border-border bg-bg-2 hover:bg-bg-3 cursor-pointer transition-colors"
