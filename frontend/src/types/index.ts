@@ -206,3 +206,32 @@ export interface ApiKey {
 export interface ApiKeyCreated extends ApiKey {
   full_key: string;
 }
+
+export interface MarketServer {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  packageType: string;
+  packageId: string;
+  transport: string;
+  envVars: MarketEnvVar[];
+}
+
+export interface MarketEnvVar {
+  name: string;
+  required: boolean;
+  secret: boolean;
+  description: string;
+}
+
+export interface MarketImportResult {
+  name: string;
+  installed: boolean;
+  error: string | null;
+}
+
+export interface MarketSearchResult {
+  servers: MarketServer[];
+  nextCursor: string;
+}

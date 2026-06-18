@@ -4,7 +4,7 @@
  * 所有请求走 vite proxy 的 /api 前缀（开发期转发到 http://127.0.0.1:8000）。
  * 后端 schema 见 backend/app/schemas.py。
  */
-import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, ExtensionPlugin, ExtensionPluginOut, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, Plugin, User } from '@/types';
+import type { ApiKey, ApiKeyCreated, App, ChatMessage, Conversation, DocumentChunk, ExtensionPlugin, ExtensionPluginOut, KbCreatePayload, KnowledgeBase, KnowledgeBaseFile, MarketImportResult, MarketSearchResult, MarketServer, Plugin, User } from '@/types';
 // ---------- 后端返回类型 ----------
 export interface KbOut {
   id: number;
@@ -815,5 +815,23 @@ export const api = {
       body: JSON.stringify(data),
     });
     return mapExtensionPlugin(raw);
+  },
+
+  // ========== MCP Marketplace ==========
+  searchMarketplace: async (q: string, cursor?: string): Promise<MarketSearchResult> => {
+    const params = new URLSearchParams({ q, limit: '20' });
+    if (cursor) params.set('cursor', cursor);
+    return request<MarketSearchResult>(`/api/mcp-marketplace/search?${params}`);
+  },
+
+  getMarketPackage: async (name: string, version: string): Promise<MarketServer> => {
+    return request<MarketServer>(`/api/mcp-marketplace/package/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+  },
+
+  importFromMarketplace: async (name: string, version: string, env?: Record<string, string>): Promise<MarketImportResult> => {
+    return request<MarketImportResult>('/api/mcp-marketplace/import', {
+      method: 'POST',
+      body: JSON.stringify({ name, version, env: env || {} }),
+    });
   },
 };
