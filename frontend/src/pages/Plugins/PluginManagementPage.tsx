@@ -54,12 +54,13 @@ const EMPTY_FORM: ConfigFormState = {
   configured_models: [],
 };
 
-type TabFilter = 'all' | 'model' | 'skill' | 'extension';
+type TabFilter = 'all' | 'model' | 'skill' | 'extension' | 'mcp_server';
 
 const CATEGORY_LABEL: Record<string, string> = {
   model: '模型',
   skill: '技能',
   extension: '扩展',
+  mcp_server: 'MCP Server',
 };
 
 export const PluginManagementPage: React.FC = () => {
@@ -130,12 +131,12 @@ export const PluginManagementPage: React.FC = () => {
   }, [isAdmin]);
 
   const counts = useMemo(() => {
-    const byCat: Record<string, number> = { model: 0, skill: 0, extension: 0 };
+    const byCat: Record<string, number> = { model: 0, skill: 0, extension: 0, mcp_server: 0 };
     for (const p of plugins) {
       const c = p.category || 'model';
       byCat[c] = (byCat[c] ?? 0) + 1;
     }
-    return { all: plugins.length, model: byCat.model ?? 0, skill: byCat.skill ?? 0, extension: byCat.extension ?? 0 };
+    return { all: plugins.length, model: byCat.model ?? 0, skill: byCat.skill ?? 0, extension: byCat.extension ?? 0, mcp_server: byCat.mcp_server ?? 0 };
   }, [plugins]);
 
   const filtered = useMemo(() => {
@@ -470,7 +471,7 @@ export const PluginManagementPage: React.FC = () => {
 
       {/* 分类 Tab */}
       <div className="flex gap-2 px-6 py-3 border-b border-border shrink-0">
-        {(['all', 'model', 'skill', 'extension'] as const).map(tab => (
+        {(['all', 'model', 'skill', 'extension', 'mcp_server'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setTabFilter(tab)}
@@ -480,7 +481,11 @@ export const PluginManagementPage: React.FC = () => {
                 : 'text-muted-foreground hover:bg-accent'
             }`}
           >
-              {tab === 'all' ? `全部 (${counts.all})` : tab === 'model' ? `模型 (${counts.model})` : tab === 'skill' ? `技能 (${counts.skill ?? 0})` : `扩展 (${counts.extension ?? 0})`}
+              {tab === 'all' ? `全部 (${counts.all})` : 
+tab === 'model' ? `模型 (${counts.model})` : 
+tab === 'skill' ? `技能 (${counts.skill ?? 0})` : 
+tab === 'mcp_server' ? `MCP Server (${counts.mcp_server ?? 0})` : 
+`扩展 (${counts.extension ?? 0})`}
           </button>
         ))}
       </div>
@@ -611,6 +616,14 @@ export const PluginManagementPage: React.FC = () => {
                                     ));
                                   } catch { return null; }
                                 })()}
+                              </div>
+                            )}
+                            {p.category === 'mcp_server' && (
+                              <div className="mt-1.5 flex items-center gap-2">
+                                <span className={`w-1.5 h-1.5 rounded-full ${'isActive' in p && (p as any).isActive ? 'bg-green-500' : 'bg-text-mute'}`} />
+                                <span className="text-2xs text-text-mute">
+                                  {(p as any).isActive ? '已连接' : '未连接'}
+                                </span>
                               </div>
                             )}
                           </div>
