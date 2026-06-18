@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -10,12 +11,13 @@ from langchain_core.tools import BaseTool, tool
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class McpServerInfo:
     name: str
     session: ClientSession | None = None
-    tools: list[dict] = []
+    tools: list[dict] = field(default_factory=list)
     entry: str = ""
-    env: dict = {}
+    env: dict = field(default_factory=dict)
 
 
 class MCPClientManager:
@@ -24,7 +26,7 @@ class MCPClientManager:
 
     async def start_plugin(self, name: str, entry: str, env: dict | None = None) -> list[dict]:
         info = McpServerInfo(name=name, entry=entry, env=env or {})
-        params = StdioServerParameters(command="python", args=[entry], env={**env} if env else None)
+        params = StdioServerParameters(command="python", args=[entry], env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
         read, write = await cm_stdio.__aenter__()
         cm_session = ClientSession(read, write)
@@ -49,6 +51,22 @@ class MCPClientManager:
             await info._cm_stdio.__aexit__(None, None, None)
         logger.info("MCP plugin %s stopped", name)
 
+    async def _make_tool_call(self, server_name: str, tool_name: str, **kwargs: Any) -> str:
+        session = self._servers[server_name].session
+        if session is None:
+            return "Error: server not connected"
+        try:
+            resp = await session.call_tool(tool_name, kwargs)
+            parts = []
+            for c in resp.content:
+                if hasattr(c, "text"):
+                    parts.append(c.text)
+                elif hasattr(c, "model_dump"):
+                    parts.append(json.dumps(c.model_dump(), ensure_ascii=False))
+            return json.dumps(parts, ensure_ascii=False)
+        except Exception as e:
+            return f"Error calling tool {tool_name}: {e}"
+
     def get_all_tools(self) -> list[BaseTool]:
         result: list[BaseTool] = []
         for name, info in self._servers.items():
@@ -58,21 +76,8 @@ class MCPClientManager:
                 server_name = name
 
                 @tool(tool_name, description=tool_desc)
-                async def run_tool(**kwargs: Any) -> str:
-                    session = self._servers[server_name].session
-                    if session is None:
-                        return "Error: server not connected"
-                    try:
-                        resp = await session.call_tool(tool_name, kwargs)
-                        parts = []
-                        for c in resp.content:
-                            if hasattr(c, "text"):
-                                parts.append(c.text)
-                            elif hasattr(c, "model_dump"):
-                                parts.append(json.dumps(c.model_dump(), ensure_ascii=False))
-                        return json.dumps(parts, ensure_ascii=False)
-                    except Exception as e:
-                        return f"Error calling tool {tool_name}: {e}"
+                async def run_tool(server_name=server_name, tool_name=tool_name, **kwargs: Any) -> str:
+                    return await self._make_tool_call(server_name, tool_name, **kwargs)
 
                 result.append(run_tool)
         return result
