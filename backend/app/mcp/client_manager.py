@@ -13,33 +13,42 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class McpServerInfo:
-    name: str
+    name: str = ""
     session: ClientSession | None = None
     tools: list[dict] = field(default_factory=list)
     entry: str = ""
     env: dict = field(default_factory=dict)
+    _cm_stdio: object | None = field(default=None, repr=False)
+    _cm_session: object | None = field(default=None, repr=False)
 
 
 class MCPClientManager:
     def __init__(self):
         self._servers: dict[str, McpServerInfo] = {}
 
-    async def start_plugin(self, name: str, entry: str, env: dict | None = None) -> list[dict]:
+    async def start_plugin(self, name: str, entry: str, env: dict[str, str] | None = None) -> list[dict]:
         info = McpServerInfo(name=name, entry=entry, env={} if env is None else env)
         params = StdioServerParameters(command="python", args=[entry], env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
-        read, write = await cm_stdio.__aenter__()
-        cm_session = ClientSession(read, write)
-        session = await cm_session.__aenter__()
-        await session.initialize()
-        info.session = session
-        info._cm_stdio = cm_stdio
-        info._cm_session = cm_session
-        result = await session.list_tools()
-        info.tools = [{"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in result.tools]
-        self._servers[name] = info
-        logger.info("MCP plugin %s started with %d tools", name, len(info.tools))
-        return info.tools
+        cm_session = None
+        try:
+            read, write = await cm_stdio.__aenter__()
+            cm_session = ClientSession(read, write)
+            session = await cm_session.__aenter__()
+            await session.initialize()
+            info.session = session
+            info._cm_stdio = cm_stdio
+            info._cm_session = cm_session
+            result = await session.list_tools()
+            info.tools = [{"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in result.tools]
+            self._servers[name] = info
+            logger.info("MCP plugin %s started with %d tools", name, len(info.tools))
+            return info.tools
+        except Exception:
+            if cm_session:
+                await cm_session.__aexit__(None, None, None)
+            await cm_stdio.__aexit__(None, None, None)
+            raise
 
     async def stop_plugin(self, name: str):
         info = self._servers.pop(name, None)
