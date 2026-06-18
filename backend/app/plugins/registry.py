@@ -71,6 +71,9 @@ def sync_extensions_to_db(db: Session) -> None:
         skills_json = json.dumps((manifest or {}).get("skills", {}), ensure_ascii=False)
         hooks_json = json.dumps((manifest or {}).get("backend", {}).get("hooks", {}), ensure_ascii=False)
         frontend_json = json.dumps((manifest or {}).get("frontend", {}), ensure_ascii=False)
+        runtime = (manifest or {}).get("runtime", "python")
+        package_id = (manifest or {}).get("package_id", "")
+        env_vars_json = (manifest or {}).get("env_vars_json", "{}")
 
         if name in existing:
             row = existing[name]
@@ -79,6 +82,10 @@ def sync_extensions_to_db(db: Session) -> None:
                 row.skills_json = skills_json
             row.hooks_json = hooks_json
             row.frontend_json = frontend_json
+            row.runtime = runtime or row.runtime
+            row.package_id = package_id or row.package_id
+            if env_vars_json and env_vars_json != "{}":
+                row.env_vars_json = env_vars_json
             if row.label != label and label:
                 row.label = label
             continue
@@ -93,6 +100,9 @@ def sync_extensions_to_db(db: Session) -> None:
                 skills_json=skills_json,
                 hooks_json=hooks_json,
                 frontend_json=frontend_json,
+                runtime=runtime,
+                package_id=package_id,
+                env_vars_json=env_vars_json,
             )
         )
     db.commit()
