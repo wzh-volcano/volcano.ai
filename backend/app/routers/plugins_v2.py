@@ -11,8 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import schemas
+from ..config import settings
 from ..database import get_db
 from ..deps import get_current_admin
+from ..mcp.client_manager import get_mcp_manager
 from ..models import PluginExtension, User
 
 router = APIRouter(prefix="/api/plugins/v2", tags=["plugins-v2"])
@@ -76,7 +78,7 @@ def install_extension(
 
 
 @router.post("/{name}/activate", response_model=schemas.ExtensionPluginOut)
-def activate_extension(
+async def activate_extension(
     name: str,
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
@@ -91,11 +93,20 @@ def activate_extension(
     row.is_active = True
     db.commit()
     db.refresh(row)
+
+    # For mcp_server plugins, start the subprocess
+    if row.category == "mcp_server":
+        import os
+        entry = os.path.join(str(settings.upload_path), "mcp_servers", name, "server.py")
+        if os.path.exists(entry):
+            import asyncio
+            asyncio.ensure_future(get_mcp_manager().start_plugin(name, entry))
+
     return _to_out(row)
 
 
 @router.post("/{name}/deactivate", response_model=schemas.ExtensionPluginOut)
-def deactivate_extension(
+async def deactivate_extension(
     name: str,
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
@@ -106,6 +117,11 @@ def deactivate_extension(
     row.is_active = False
     db.commit()
     db.refresh(row)
+
+    if row.category == "mcp_server":
+        import asyncio
+        asyncio.ensure_future(get_mcp_manager().stop_plugin(name))
+
     return _to_out(row)
 
 
@@ -129,6 +145,9 @@ def update_skill_config(
     if skill_entry is None:
         raise HTTPException(status_code=404, detail=f"技能 {payload.name} 不存在")
 
+    # skills_json 中每个技能可能是纯字符串路径或 dict 配置
+    if isinstance(skill_entry, str):
+        skill_entry = {"path": skill_entry, "keywords": [], "match_mode": "keyword"}
     skill_entry["keywords"] = payload.keywords
     skill_entry["match_mode"] = payload.match_mode
     skills[payload.name] = skill_entry
@@ -144,9 +163,17 @@ def delete_extension(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
 ) -> None:
+    if name == "mcp_builtin":
+        raise HTTPException(status_code=400, detail="Cannot delete built-in MCP server")
+
     row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
     if row is None:
         raise HTTPException(status_code=404, detail="插件不存在")
+
+    # Stop MCP plugin if active
+    if row.category == "mcp_server":
+        import asyncio
+        asyncio.ensure_future(get_mcp_manager().stop_plugin(name))
 
     from ..services.plugin_loader import PluginError, uninstall
     try:
@@ -154,4 +181,11 @@ def delete_extension(
     except PluginError as e:
         raise HTTPException(status_code=400, detail=str(e))
     db.delete(row)
+
+    # 同时清理可能残留的 provider_configs 行
+    from ..models import ProviderConfig
+    pc = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
+    if pc is not None:
+        db.delete(pc)
+
     db.commit()
