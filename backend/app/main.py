@@ -29,6 +29,7 @@ from .routers import (
     documents,
     knowledge_bases,
     plugins,
+    mcp_marketplace,
     plugins_v2,
     providers,
     public_api,
@@ -137,7 +138,8 @@ async def lifespan(app: FastAPI):
             entry = str(plugins_root() / plugin.name / "server.py")
             if os.path.exists(entry):
                 try:
-                    await get_mcp_manager().start_plugin(plugin.name, entry)
+                    await get_mcp_manager().start_plugin(plugin.name, entry,
+                                                        runtime=plugin.runtime or "python")
                     logger.info("MCP plugin %s started", plugin.name)
                 except Exception as e:
                     logger.error("Failed to start MCP plugin %s: %s", plugin.name, e)
@@ -180,6 +182,7 @@ app.include_router(users.router)
 app.include_router(apps.router)
 app.include_router(conversations.router)
 app.include_router(public_api.router)
+app.include_router(mcp_marketplace.router)
 app.include_router(plugins_v2.router)
 
 

@@ -20,10 +20,10 @@ from ..deps import get_current_admin
 from ..mcp.client_manager import get_mcp_manager
 from ..models import PluginExtension, User
 
-async def _start_mcp_plugin(name: str, entry: str):
+async def _start_mcp_plugin(name: str, entry: str, runtime: str = "python"):
     """Start MCP plugin subprocess and handle errors."""
     try:
-        await get_mcp_manager().start_plugin(name, entry)
+        await get_mcp_manager().start_plugin(name, entry, runtime=runtime)
         logging.getLogger(__name__).info("MCP plugin %s started successfully", name)
     except Exception as exc:
         logging.getLogger(__name__).error("Failed to start MCP plugin %s: %s", name, exc)
@@ -128,7 +128,7 @@ async def activate_extension(
         from ..services.plugin_loader import plugins_root
         entry = str(plugins_root() / name / "server.py")
         if os.path.exists(entry):
-            asyncio.create_task(_start_mcp_plugin(name, entry))
+            asyncio.create_task(_start_mcp_plugin(name, entry, runtime=row.runtime or "python"))
 
     return _to_out(row)
 

@@ -28,9 +28,15 @@ class MCPClientManager:
     def __init__(self):
         self._servers: dict[str, McpServerInfo] = {}
 
-    async def start_plugin(self, name: str, entry: str, env: dict[str, str] | None = None) -> list[dict]:
+    async def start_plugin(self, name: str, entry: str, env: dict[str, str] | None = None,
+                           runtime: str = "python") -> list[dict]:
         info = McpServerInfo(name=name, entry=entry, env={} if env is None else env)
-        params = StdioServerParameters(command=sys.executable, args=[entry], env={**env} if env is not None else None)
+        if runtime == "npx":
+            params = StdioServerParameters(command="npx", args=[entry],
+                                            env={**env} if env is not None else None)
+        else:
+            params = StdioServerParameters(command=sys.executable, args=[entry],
+                                            env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
         cm_session = None
         try:
