@@ -25,7 +25,7 @@ class MCPClientManager:
         self._servers: dict[str, McpServerInfo] = {}
 
     async def start_plugin(self, name: str, entry: str, env: dict | None = None) -> list[dict]:
-        info = McpServerInfo(name=name, entry=entry, env=env or {})
+        info = McpServerInfo(name=name, entry=entry, env={} if env is None else env)
         params = StdioServerParameters(command="python", args=[entry], env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
         read, write = await cm_stdio.__aenter__()
