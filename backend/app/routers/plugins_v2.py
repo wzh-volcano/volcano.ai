@@ -26,7 +26,8 @@ async def _start_mcp_plugin(name: str, entry: str, runtime: str = "python"):
         await get_mcp_manager().start_plugin(name, entry, runtime=runtime)
         logging.getLogger(__name__).info("MCP plugin %s started successfully", name)
     except Exception as exc:
-        logging.getLogger(__name__).error("Failed to start MCP plugin %s: %s", name, exc)
+        import traceback
+        logging.getLogger(__name__).error("Failed to start MCP plugin %s: %s\n%s", name, exc, traceback.format_exc())
         db = SessionLocal()
         try:
             row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
@@ -120,18 +121,25 @@ async def activate_extension(
         raise HTTPException(status_code=404, detail="插件不存在")
     if not row.installed:
         raise HTTPException(status_code=400, detail="请先安装后再激活")
-    if row.error:
-        raise HTTPException(status_code=400, detail=f"插件存在错误：{row.error}")
+    # Clear previous error and activate
+    row.error = None
     row.is_active = True
     db.commit()
     db.refresh(row)
 
     # For mcp_server plugins, start the subprocess
     if row.category == "mcp_server":
-        from ..services.plugin_loader import plugins_root
-        entry = str(plugins_root() / name / "server.py")
-        if os.path.exists(entry):
-            asyncio.create_task(_start_mcp_plugin(name, entry, runtime=row.runtime or "python"))
+        runtime = row.runtime or "python"
+        if runtime == "npx":
+            entry = row.package_id or ""
+            if not entry:
+                raise HTTPException(status_code=400, detail="npx MCP server missing package_id")
+            asyncio.create_task(_start_mcp_plugin(name, entry, runtime=runtime))
+        else:
+            from ..services.plugin_loader import plugins_root
+            entry = str(plugins_root() / name / "server.py")
+            if os.path.exists(entry):
+                asyncio.create_task(_start_mcp_plugin(name, entry, runtime=runtime))
 
     return _to_out(row)
 
@@ -146,6 +154,7 @@ async def deactivate_extension(
     if row is None:
         raise HTTPException(status_code=404, detail="插件不存在")
     row.is_active = False
+    row.error = None
     db.commit()
     db.refresh(row)
 

@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import shutil
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -96,12 +97,14 @@ async def get_package(
     _admin: User = Depends(get_current_admin),
 ) -> dict:
     """Get detailed info for a specific package version."""
-    url = f"{REGISTRY_BASE}/v0.1/servers/{name}/versions/{version}"
+    encoded_name = quote(name, safe="")
+    url = f"{REGISTRY_BASE}/v0.1/servers/{encoded_name}/versions/{version}"
     async with httpx.AsyncClient(timeout=REGISTRY_TIMEOUT) as client:
         resp = await client.get(url)
         if resp.status_code == 404:
             raise HTTPException(status_code=404, detail="Package not found")
         if resp.status_code != 200:
+            logger.warning("Registry API error: %s %s", resp.status_code, resp.text[:200])
             raise HTTPException(status_code=502, detail="Registry API unavailable")
         return _simplify_server({"server": resp.json().get("server", {})})
 
@@ -118,7 +121,8 @@ async def import_server(
     env = payload.get("env", {})
 
     # Fetch package info from Registry
-    url = f"{REGISTRY_BASE}/v0.1/servers/{name}/versions/{version}"
+    encoded_name = quote(name, safe="")
+    url = f"{REGISTRY_BASE}/v0.1/servers/{encoded_name}/versions/{version}"
     async with httpx.AsyncClient(timeout=REGISTRY_TIMEOUT) as client:
         resp = await client.get(url)
         if resp.status_code != 200:

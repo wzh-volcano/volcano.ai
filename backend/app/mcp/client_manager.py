@@ -9,6 +9,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langchain_core.tools import BaseTool, tool
 
+from .npx_client import NpxMcpClient
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +22,7 @@ class McpServerInfo:
     entry: str = ""
     env: dict[str, str] = field(default_factory=dict)
     handler: Any | None = field(default=None, repr=False)
+    npx_client: NpxMcpClient | None = field(default=None, repr=False)
     _cm_stdio: object | None = field(default=None, repr=False)
     _cm_session: object | None = field(default=None, repr=False)
 
@@ -32,11 +35,17 @@ class MCPClientManager:
                            runtime: str = "python") -> list[dict]:
         info = McpServerInfo(name=name, entry=entry, env={} if env is None else env)
         if runtime == "npx":
-            params = StdioServerParameters(command="npx", args=[entry],
-                                            env={**env} if env is not None else None)
-        else:
-            params = StdioServerParameters(command=sys.executable, args=[entry],
-                                            env={**env} if env is not None else None)
+            npx = NpxMcpClient(name, entry, env=env or {})
+            tools = await npx.start()
+            info.tools = tools
+            info.npx_client = npx
+            self._servers[name] = info
+            logger.info("MCP npx plugin %s started with %d tools", name, len(tools))
+            return tools
+
+        # Python-based MCP server
+        params = StdioServerParameters(command=sys.executable, args=[entry],
+                                        env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
         cm_session = None
         try:
@@ -63,9 +72,11 @@ class MCPClientManager:
         info = self._servers.pop(name, None)
         if info is None:
             return
-        if hasattr(info, '_cm_session') and info._cm_session:
+        if info.npx_client:
+            await info.npx_client.stop()
+        if info._cm_session:
             await info._cm_session.__aexit__(None, None, None)
-        if hasattr(info, '_cm_stdio') and info._cm_stdio:
+        if info._cm_stdio:
             await info._cm_stdio.__aexit__(None, None, None)
         logger.info("MCP plugin %s stopped", name)
 
@@ -73,6 +84,11 @@ class MCPClientManager:
         info = self._servers.get(server_name)
         if info is None:
             return "Error: server not found"
+        if info.npx_client:
+            try:
+                return await info.npx_client.call_tool(tool_name, kwargs)
+            except Exception as e:
+                return f"Error calling tool {tool_name}: {e}"
         if info.session:
             try:
                 resp = await info.session.call_tool(tool_name, kwargs)

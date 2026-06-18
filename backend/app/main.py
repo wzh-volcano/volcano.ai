@@ -134,17 +134,30 @@ async def lifespan(app: FastAPI):
             PluginExtension.is_active == True,
         ).all()
         for plugin in plugins:
-            from .services.plugin_loader import plugins_root
-            entry = str(plugins_root() / plugin.name / "server.py")
-            if os.path.exists(entry):
-                try:
-                    await get_mcp_manager().start_plugin(plugin.name, entry,
-                                                        runtime=plugin.runtime or "python")
-                    logger.info("MCP plugin %s started", plugin.name)
-                except Exception as e:
-                    logger.error("Failed to start MCP plugin %s: %s", plugin.name, e)
+            runtime = plugin.runtime or "python"
+            if runtime == "npx":
+                entry = plugin.package_id or ""
+                if entry:
+                    try:
+                        await get_mcp_manager().start_plugin(plugin.name, entry,
+                                                            runtime=runtime)
+                        logger.info("MCP plugin %s started (npx)", plugin.name)
+                    except Exception as e:
+                        logger.error("Failed to start MCP plugin %s: %s", plugin.name, e)
+                else:
+                    logger.warning("MCP plugin %s has no package_id", plugin.name)
             else:
-                logger.warning("MCP plugin %s entry not found at %s", plugin.name, entry)
+                from .services.plugin_loader import plugins_root
+                entry = str(plugins_root() / plugin.name / "server.py")
+                if os.path.exists(entry):
+                    try:
+                        await get_mcp_manager().start_plugin(plugin.name, entry,
+                                                            runtime=runtime)
+                        logger.info("MCP plugin %s started", plugin.name)
+                    except Exception as e:
+                        logger.error("Failed to start MCP plugin %s: %s", plugin.name, e)
+                else:
+                    logger.warning("MCP plugin %s entry not found at %s", plugin.name, entry)
     finally:
         db.close()
 

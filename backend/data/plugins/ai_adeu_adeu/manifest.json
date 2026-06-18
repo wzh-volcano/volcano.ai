@@ -1,0 +1,10 @@
+{
+  "name": "ai_adeu_adeu",
+  "label": "ai_adeu_adeu",
+  "description": "Automated DOCX Redlining Engine",
+  "version": "1.7.1",
+  "category": "mcp_server",
+  "runtime": "npx",
+  "package_id": "@adeu/mcp-server",
+  "env_vars_json": "{}"
+}
