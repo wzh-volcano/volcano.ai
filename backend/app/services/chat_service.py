@@ -125,16 +125,13 @@ def chat_with_app_config(
         return StreamingResponse(event_stream(), media_type="text/event-stream")
     # Note: post_chat hooks are not applied to SSE streams
     else:
-        chain = prompt | llm | StrOutputParser()
         try:
             if use_tools:
                 llm_with_tools = llm.bind_tools(mcp_tools)
-                chain = prompt | llm_with_tools
-                result = chain.invoke(input_vars)
+                result = (prompt | llm_with_tools).invoke(input_vars)
                 answer = result.content if hasattr(result, 'content') else str(result)
             else:
-                chain = prompt | llm | StrOutputParser()
-                answer = chain.invoke(input_vars)
+                answer = (prompt | llm | StrOutputParser()).invoke(input_vars)
             # ---- post_chat hook ----
             answer = _hook_dispatcher.dispatch_post_chat(question, answer, {}, db)
             return {"answer": answer}
