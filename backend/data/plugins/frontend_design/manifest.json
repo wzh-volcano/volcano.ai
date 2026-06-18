@@ -1,0 +1,10 @@
+{
+  "name": "frontend_design",
+  "label": "前端界面设计规范",
+  "version": "1.0.0",
+  "category": "skill",
+  "license": "Apache-2.0",
+  "skills": {
+    "frontend-design": "skills/frontend-design.md"
+  }
+}

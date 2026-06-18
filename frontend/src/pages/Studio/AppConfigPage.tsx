@@ -81,6 +81,9 @@ export const AppConfigPage: React.FC = () => {
 
   // KBs
   const [availableKbs, setAvailableKbs] = useState<{ id: number; name: string }[]>([]);
+  // Skills
+  const [availableSkills, setAvailableSkills] = useState<{ name: string; label: string }[]>([]);
+  const [skillNames, setSkillNames] = useState<string[]>([]);
 
   useEffect(() => {
     if (app) {
@@ -93,6 +96,7 @@ export const AppConfigPage: React.FC = () => {
         setProvider(config.provider || '');
         setPrompt(config.prompt || '');
         setKbIds(config.kb_ids || []);
+        setSkillNames(config.skill_names || []);
         setApiEnabled(app.apiEnabled ?? false);
       } catch {
         // 解析失败用默认值
@@ -143,13 +147,36 @@ export const AppConfigPage: React.FC = () => {
     })();
   }, []);
 
+  // Fetch activated skills
+  useEffect(() => {
+    (async () => {
+      try {
+        const { api } = await import('@/lib/api');
+        const exts = await api.listExtensionPlugins();
+        const skills: { name: string; label: string }[] = [];
+        for (const ext of exts) {
+          if (!ext.installed || !ext.isActive || !ext.skillsJson) continue;
+          try {
+            const map = JSON.parse(ext.skillsJson);
+            for (const sname of Object.keys(map)) {
+              skills.push({ name: sname, label: `${ext.label} — ${sname}` });
+            }
+          } catch { /* skip */ }
+        }
+        setAvailableSkills(skills);
+      } catch {
+        // 忽略
+      }
+    })();
+  }, []);
+
   const handleSave = async () => {
     if (!app) return;
     setSaving(true);
     setSaveError('');
     setSaveSuccess(false);
     try {
-      const configJson = JSON.stringify({ model, provider, prompt, kb_ids: kbIds });
+      const configJson = JSON.stringify({ model, provider, prompt, kb_ids: kbIds, skill_names: skillNames });
       await updateApp(app.id, { name, icon, description, config_json: configJson, api_enabled: apiEnabled });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
@@ -523,6 +550,35 @@ POST /api/public/apps/{app_id}/conversations/{conv_id}/compress
                         className="rounded border-border"
                       />
                       <span className="text-text">{kb.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Skills */}
+            <Separator />
+            <div>
+              <h3 className="text-sm font-medium text-text mb-3">技能</h3>
+              {availableSkills.length === 0 ? (
+                <p className="text-xs text-text-dim">暂无已激活的技能，请先到插件管理安装并激活</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {availableSkills.map((sk) => (
+                    <label key={sk.name} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={skillNames.includes(sk.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSkillNames([...skillNames, sk.name]);
+                          } else {
+                            setSkillNames(skillNames.filter((n) => n !== sk.name));
+                          }
+                        }}
+                        className="rounded border-border"
+                      />
+                      <span className="text-text">{sk.label}</span>
                     </label>
                   ))}
                 </div>

@@ -1,0 +1,8 @@
+{
+  "name": "calc_helper",
+  "label": "计算器 MCP",
+  "description": "Calculator MCP server - basic math operations",
+  "version": "1.0.0",
+  "category": "mcp_server",
+  "entry": "server.py"
+}

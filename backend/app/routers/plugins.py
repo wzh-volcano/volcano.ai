@@ -27,6 +27,7 @@ from ..providers import (
     sync_uploaded_to_db,
 )
 from ..providers.registry import _instantiate
+from ..plugins.registry import sync_extensions_to_db
 from ..services import plugin_loader
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
@@ -80,6 +81,8 @@ async def upload_plugin(
     # 重新扫描所有上传插件并同步到 DB（顺便把 _REGISTRY 更新）
     results = load_uploaded_plugins()
     sync_uploaded_to_db(db, results)
+    # 同步非 model 插件到 plugin_extensions 表
+    sync_extensions_to_db(db)
 
     return schemas.PluginInstallResponse(
         name=name, installed=(error is None), error=error
@@ -100,6 +103,7 @@ def import_plugin(
 
     results = load_uploaded_plugins()
     sync_uploaded_to_db(db, results)
+    sync_extensions_to_db(db)
 
     return schemas.PluginInstallResponse(
         name=name, installed=(error is None), error=error

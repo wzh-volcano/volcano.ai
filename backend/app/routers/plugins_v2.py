@@ -4,7 +4,10 @@
 因为 FastAPI 会读取真实的返回注解判断是否需要序列化响应体；
 若注解被字符串化，DELETE 204 端点会被误判为有 response_model。
 """
+import asyncio
 import json
+import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -12,12 +15,38 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..config import settings
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..deps import get_current_admin
 from ..mcp.client_manager import get_mcp_manager
 from ..models import PluginExtension, User
 
+async def _start_mcp_plugin(name: str, entry: str):
+    """Start MCP plugin subprocess and handle errors."""
+    try:
+        await get_mcp_manager().start_plugin(name, entry)
+        logging.getLogger(__name__).info("MCP plugin %s started successfully", name)
+    except Exception as exc:
+        logging.getLogger(__name__).error("Failed to start MCP plugin %s: %s", name, exc)
+        db = SessionLocal()
+        try:
+            row = db.scalar(select(PluginExtension).where(PluginExtension.name == name))
+            if row:
+                row.error = str(exc)
+                row.is_active = False
+                db.commit()
+        finally:
+            db.close()
+
+
 router = APIRouter(prefix="/api/plugins/v2", tags=["plugins-v2"])
+
+
+@router.get("/mcp/status")
+async def mcp_status(
+    _admin: User = Depends(get_current_admin),
+) -> dict:
+    from ..mcp.client_manager import get_mcp_manager
+    return get_mcp_manager().get_status_dict()
 
 
 def _to_out(p: PluginExtension) -> schemas.ExtensionPluginOut:
@@ -96,11 +125,10 @@ async def activate_extension(
 
     # For mcp_server plugins, start the subprocess
     if row.category == "mcp_server":
-        import os
-        entry = os.path.join(str(settings.upload_path), "mcp_servers", name, "server.py")
+        from ..services.plugin_loader import plugins_root
+        entry = str(plugins_root() / name / "server.py")
         if os.path.exists(entry):
-            import asyncio
-            asyncio.ensure_future(get_mcp_manager().start_plugin(name, entry))
+            asyncio.create_task(_start_mcp_plugin(name, entry))
 
     return _to_out(row)
 
@@ -119,8 +147,7 @@ async def deactivate_extension(
     db.refresh(row)
 
     if row.category == "mcp_server":
-        import asyncio
-        asyncio.ensure_future(get_mcp_manager().stop_plugin(name))
+        asyncio.create_task(get_mcp_manager().stop_plugin(name))
 
     return _to_out(row)
 
@@ -158,7 +185,7 @@ def update_skill_config(
 
 
 @router.delete("/{name}", status_code=204)
-def delete_extension(
+async def delete_extension(
     name: str,
     db: Session = Depends(get_db),
     _admin: User = Depends(get_current_admin),
@@ -172,8 +199,7 @@ def delete_extension(
 
     # Stop MCP plugin if active
     if row.category == "mcp_server":
-        import asyncio
-        asyncio.ensure_future(get_mcp_manager().stop_plugin(name))
+        await get_mcp_manager().stop_plugin(name)
 
     from ..services.plugin_loader import PluginError, uninstall
     try:

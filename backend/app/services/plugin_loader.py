@@ -60,7 +60,7 @@ def _read_manifest(plugin_dir: Path) -> dict:
         raise PluginError(f"非法插件名: {manifest['name']}")
 
     entry = manifest.get("entry", "")
-    if entry and ":" not in entry:
+    if entry and ":" not in entry and category == "model":
         raise PluginError("entry 必须形如 'module:Class'")
     return manifest
 
@@ -107,10 +107,11 @@ def install_from_upload(content: bytes, filename: str) -> tuple[str, str | None]
             shutil.rmtree(target)
         shutil.copytree(manifest_dir, target)
 
-    # 尝试 import（仅当有 entry 时）
+    # 尝试 import（仅 model 类型需要 entry 为 module:Class）
     error: str | None = None
+    category = manifest.get("category", "model")
     entry = manifest.get("entry", "")
-    if entry:
+    if entry and category == "model":
         try:
             target_str = str((plugins_root() / name).resolve())
             if target_str not in sys.path:

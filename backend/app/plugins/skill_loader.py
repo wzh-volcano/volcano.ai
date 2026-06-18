@@ -14,15 +14,25 @@ SKILLS_DIR = Path("data") / "plugins"
 
 class SkillInjector:
     def load_from_plugin(
-        self, plugin_name: str, skills_map: dict[str, str]
+        self, plugin_name: str, skills_map: dict[str, str | dict]
     ) -> list[SkillDef]:
         """Read skills markdown from plugin's skills/ directory.
 
-        skills_map: {"code-review": "skills/code-review.md"}
+        skills_map supports two formats:
+          - {"code-review": "skills/code-review.md"}
+          - {"code-review": {"path": "skills/code-review.md", "keywords": [...], "match_mode": "keyword"}}
         """
         result: list[SkillDef] = []
         plugin_dir = SKILLS_DIR / plugin_name
-        for skill_name, rel_path in skills_map.items():
+        for skill_name, entry in skills_map.items():
+            if isinstance(entry, dict):
+                rel_path = entry.get("path", "")
+                keywords = entry.get("keywords", [])
+                match_mode = entry.get("match_mode", "keyword")
+            else:
+                rel_path = entry
+                keywords = []
+                match_mode = "keyword"
             md_file = plugin_dir / rel_path
             if not md_file.exists():
                 continue
@@ -31,8 +41,8 @@ class SkillInjector:
                 name=skill_name,
                 plugin_name=plugin_name,
                 content=content,
-                match_mode="keyword",
-                keywords=[],
+                match_mode=match_mode,
+                keywords=keywords,
             ))
         return result
 

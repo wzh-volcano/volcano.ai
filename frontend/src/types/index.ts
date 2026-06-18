@@ -126,6 +126,25 @@ export interface Plugin {
   updatedAt: string;
 }
 
+/** Raw API response for extension plugins (snake_case) */
+export interface ExtensionPluginOut {
+  id: number;
+  name: string;
+  label: string;
+  category: string;
+  source: 'builtin' | 'uploaded';
+  version: string;
+  skills_json: string | null;
+  hooks_json: string | null;
+  frontend_json: string | null;
+  installed: boolean;
+  is_active: boolean;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Frontend-friendly extension plugin (camelCase) */
 export interface ExtensionPlugin {
   id: number;
   name: string;

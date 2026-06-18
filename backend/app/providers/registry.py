@@ -84,19 +84,27 @@ def load_uploaded_plugins() -> list[tuple[str, str | None]]:
             name = manifest["name"]
             label = manifest.get("label", name)
             category = manifest.get("category", "model")
-            entry = manifest["entry"]  # "module:Class"
-            mod_name, _, cls_name = entry.partition(":")
+            entry = manifest.get("entry", "")
 
-            # 把插件目录加入 sys.path 以便 import
-            import sys
+            if entry and category == "model":
+                # 只对 model 插件尝试 import；非 model 插件的 entry 可能为文件路径
+                mod_name, _, cls_name = entry.partition(":")
 
-            sub_str = str(sub.resolve())
-            if sub_str not in sys.path:
-                sys.path.insert(0, sub_str)
+                # 把插件目录加入 sys.path 以便 import
+                import sys
 
-            module = importlib.import_module(mod_name)
-            cls = getattr(module, cls_name)
-            module_path = f"{mod_name}:{cls_name}"
+                sub_str = str(sub.resolve())
+                if sub_str not in sys.path:
+                    sys.path.insert(0, sub_str)
+
+                module = importlib.import_module(mod_name)
+                cls = getattr(module, cls_name)
+                module_path = f"{mod_name}:{cls_name}"
+            else:
+                # 无 entry（如纯 skill 插件），或非 model 插件，不尝试 import
+                cls = object
+                module_path = ""
+
             _REGISTRY[name] = (cls, label, module_path, "uploaded", category)
             results.append((name, None))
         except Exception as e:  # noqa: BLE001
@@ -168,19 +176,23 @@ def sync_builtin_to_db(db: Session) -> None:
 
 
 def sync_uploaded_to_db(db: Session, results: list[tuple[str, str | None]]) -> None:
-    """把扫描到的上传插件写入/更新 provider_configs。"""
+    """把扫描到的上传插件写入/更新 provider_configs。
+
+    只处理 model 类插件；skill / extension 由 sync_extensions_to_db 管理。
+    """
     from ..models import ProviderConfig
 
     for name, err in results:
-        row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
         entry = _REGISTRY.get(name)
         if entry is None:
-            # 加载失败也保留一条占位行，方便前端展示错误
             label = name
             module_path = ""
             category = "model"
         else:
             _, label, module_path, _, category = entry
+        if category and category != "model":
+            continue  # 非 model 插件由 plugin_extensions 表管理
+        row = db.scalar(select(ProviderConfig).where(ProviderConfig.name == name))
         if row is None:
             db.add(
                 ProviderConfig(

@@ -3,6 +3,8 @@
 启动：在 backend/ 目录下执行
     uvicorn app.main:app --reload --port 8000
 """
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,7 +13,8 @@ from sqlalchemy import func, select
 
 from .config import settings
 from .database import SessionLocal, init_db
-from .models import User
+from .models import PluginExtension, User
+from .mcp.client_manager import get_mcp_manager
 from .providers import (
     load_uploaded_plugins,
     sync_builtin_to_db,
@@ -32,6 +35,8 @@ from .routers import (
     users,
 )
 from .security import hash_password
+
+logger = logging.getLogger(__name__)
 
 
 def seed_admin() -> None:
@@ -66,13 +71,86 @@ def seed_providers() -> None:
         db.close()
 
 
+# Built-in MCP tool definitions and handler
+BUILTIN_TOOL_DEFS = [
+    {
+        "name": "knowledge_search",
+        "description": "Search the knowledge base for relevant chunks. Call this when the user asks about specific documents or knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "kb_ids": {
+                    "type": "array", "items": {"type": "integer"},
+                    "description": "Optional knowledge base IDs to restrict search to",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "skill_get_guide",
+        "description": "Get skill guide content matching the user query. Call this when a skill plugin might be relevant.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "User query to match against skill keywords"},
+                "app_id": {"type": "integer", "description": "Optional app ID to filter skills"},
+            },
+            "required": ["query"],
+        },
+    },
+]
+
+
+async def _builtin_mcp_handler(tool_name: str, arguments: dict) -> str:
+    """In-process handler for built-in MCP tools."""
+    from .mcp.builtin_server import call_tool_directly
+    return await call_tool_directly(tool_name, arguments)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动：建库建表 + 初始化管理员 + 同步插件
     init_db()
     seed_admin()
     seed_providers()
+
+    # ---- MCP Server initialization ----
+    # Built-in MCP tools (in-process, no subprocess)
+    try:
+        mgr = get_mcp_manager()
+        mgr.register_inproc_tools("mcp_builtin", BUILTIN_TOOL_DEFS, _builtin_mcp_handler)
+        logger.info("Built-in MCP tools registered")
+    except Exception as e:
+        logger.error("Failed to register built-in MCP tools: %s", e)
+
+    # User-activated MCP Server plugins
+    db = SessionLocal()
+    try:
+        plugins = db.query(PluginExtension).filter(
+            PluginExtension.category == "mcp_server",
+            PluginExtension.is_active == True,
+        ).all()
+        for plugin in plugins:
+            from .services.plugin_loader import plugins_root
+            entry = str(plugins_root() / plugin.name / "server.py")
+            if os.path.exists(entry):
+                try:
+                    await get_mcp_manager().start_plugin(plugin.name, entry)
+                    logger.info("MCP plugin %s started", plugin.name)
+                except Exception as e:
+                    logger.error("Failed to start MCP plugin %s: %s", plugin.name, e)
+            else:
+                logger.warning("MCP plugin %s entry not found at %s", plugin.name, entry)
+    finally:
+        db.close()
+
     yield
+
+    # ---- Shutdown: stop MCP ----
+    await get_mcp_manager().stop_all()
+    logger.info("All MCP servers stopped")
 
 
 app = FastAPI(

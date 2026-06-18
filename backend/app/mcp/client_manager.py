@@ -19,6 +19,7 @@ class McpServerInfo:
     tools: list[dict[str, Any]] = field(default_factory=list)
     entry: str = ""
     env: dict[str, str] = field(default_factory=dict)
+    handler: Any | None = field(default=None, repr=False)
     _cm_stdio: object | None = field(default=None, repr=False)
     _cm_session: object | None = field(default=None, repr=False)
 
@@ -29,7 +30,7 @@ class MCPClientManager:
 
     async def start_plugin(self, name: str, entry: str, env: dict[str, str] | None = None) -> list[dict]:
         info = McpServerInfo(name=name, entry=entry, env={} if env is None else env)
-        params = StdioServerParameters(command="python", args=[entry], env={**env} if env is not None else None)
+        params = StdioServerParameters(command=sys.executable, args=[entry], env={**env} if env is not None else None)
         cm_stdio = stdio_client(params)
         cm_session = None
         try:
@@ -63,20 +64,33 @@ class MCPClientManager:
         logger.info("MCP plugin %s stopped", name)
 
     async def _make_tool_call(self, server_name: str, tool_name: str, **kwargs: Any) -> str:
-        session = self._servers[server_name].session
-        if session is None:
-            return "Error: server not connected"
-        try:
-            resp = await session.call_tool(tool_name, kwargs)
-            parts = []
-            for c in resp.content:
-                if hasattr(c, "text"):
-                    parts.append(c.text)
-                elif hasattr(c, "model_dump"):
-                    parts.append(json.dumps(c.model_dump(), ensure_ascii=False))
-            return json.dumps(parts, ensure_ascii=False)
-        except Exception as e:
-            return f"Error calling tool {tool_name}: {e}"
+        info = self._servers.get(server_name)
+        if info is None:
+            return "Error: server not found"
+        if info.session:
+            try:
+                resp = await info.session.call_tool(tool_name, kwargs)
+                parts = []
+                for c in resp.content:
+                    if hasattr(c, "text"):
+                        parts.append(c.text)
+                    elif hasattr(c, "model_dump"):
+                        parts.append(json.dumps(c.model_dump(), ensure_ascii=False))
+                return json.dumps(parts, ensure_ascii=False)
+            except Exception as e:
+                return f"Error calling tool {tool_name}: {e}"
+        if info.handler:
+            return await info.handler(tool_name, kwargs)
+        return "Error: no session or handler"
+
+    def register_inproc_tools(
+        self, name: str, tools: list[dict],
+        handler: Any
+    ) -> None:
+        """Register tools that are handled in-process (no subprocess)."""
+        info = McpServerInfo(name=name, tools=tools, entry="", handler=handler)
+        self._servers[name] = info
+        logger.info("In-process MCP %s registered with %d tools", name, len(tools))
 
     def get_all_tools(self) -> list[BaseTool]:
         result: list[BaseTool] = []
@@ -92,6 +106,9 @@ class MCPClientManager:
 
                 result.append(run_tool)
         return result
+
+    def get_status_dict(self) -> dict:
+        return {name: {"tools": [t["name"] for t in info.tools]} for name, info in self._servers.items()}
 
     async def stop_all(self):
         for name in list(self._servers):

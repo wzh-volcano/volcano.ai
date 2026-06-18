@@ -143,6 +143,21 @@ async def _handle_skill_get_guide(arguments: dict) -> list[TextContent]:
         db.close()
 
 
+async def call_tool_directly(tool_name: str, arguments: dict) -> str:
+    """In-process equivalent of MCP call_tool, returning JSON string."""
+    import json
+    result = await call_tool(tool_name, arguments)
+    parts = []
+    for c in result:
+        if hasattr(c, "text"):
+            parts.append(c.text)
+        elif isinstance(c, dict):
+            parts.append(json.dumps(c, ensure_ascii=False))
+        else:
+            parts.append(str(c))
+    return json.dumps(parts, ensure_ascii=False)
+
+
 async def main():
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())

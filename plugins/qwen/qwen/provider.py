@@ -32,7 +32,7 @@ class QwenProvider:
         return self._config.get("api_key", "")
 
     def llm_model(self) -> str:
-        return self._config.get("llm_model") or "qwen-plus"
+        return self._config.get("llm_model") 
 
     def embedding_model(self) -> str:
         return self._config.get("embedding_model") or "text-embedding-v3"

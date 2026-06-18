@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArrowUp, Copy, Check, ChevronDown, Pause, Play, Square, Eye, FileDown, Shrink, Loader2, Gauge } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { ArrowUp, ChevronDown, Pause, Play, Square, Shrink, Loader2, Gauge } from 'lucide-react';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
-import 'highlight.js/styles/github-dark.css';
 
 import { useConversationStore } from '@/store/useConversationStore';
 import type { ChatMessage } from '@/types';
+import { MessageBubble } from '@/components/chat/MessageBubble';
 
 interface Props {
   appId: number;
@@ -23,78 +21,6 @@ interface Props {
 
 const SCROLL_BOTTOM_THRESHOLD = 150;
 
-const CodeBlock: React.FC<React.ComponentPropsWithoutRef<'pre'> & { streaming?: boolean }> = ({ children, streaming, ...props }) => {
-  const preRef = useRef<HTMLPreElement>(null);
-  const [copied, setCopied] = useState(false);
-  const [isHtml, setIsHtml] = useState(false);
-
-  useEffect(() => {
-    const text = preRef.current?.textContent || '';
-    setIsHtml(/(<html|<!(DOCTYPE|--))/i.test(text));
-  }, [children]);
-
-  const handleCopy = async () => {
-    if (!preRef.current) return;
-    await navigator.clipboard.writeText(preRef.current.textContent || '');
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handlePreview = () => {
-    const text = preRef.current?.textContent || '';
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(text);
-      win.document.close();
-    }
-  };
-
-  const handleDownload = () => {
-    const text = preRef.current?.textContent || '';
-    const blob = new Blob([text], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'preview.html';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="relative group/pre my-2">
-      <pre ref={preRef} {...props} className="bg-bg-3 border border-border rounded-lg p-3 overflow-x-auto text-xs leading-relaxed !mt-0 !mb-0">
-        {children}
-      </pre>
-      <div className={`absolute top-2 right-2 flex gap-1 ${streaming ? 'hidden' : 'opacity-0 group-hover/pre:opacity-100 transition-opacity'}`}>
-        {isHtml && (
-          <>
-            <button
-              className="w-6 h-6 flex items-center justify-center rounded bg-bg-2 border border-border text-text-mute hover:text-text"
-              onClick={handlePreview}
-              title="预览 HTML"
-            >
-              <Eye size={12} />
-            </button>
-            <button
-              className="w-6 h-6 flex items-center justify-center rounded bg-bg-2 border border-border text-text-mute hover:text-text"
-              onClick={handleDownload}
-              title="下载 HTML"
-            >
-              <FileDown size={12} />
-            </button>
-          </>
-        )}
-        <button
-          className="w-6 h-6 flex items-center justify-center rounded bg-bg-2 border border-border text-text-mute hover:text-text"
-          onClick={handleCopy}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-        </button>
-      </div>
-    </div>
-  );
-};
-
 export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversationId }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: '你好！我是聊天助手，有什么可以帮助你的？' },
@@ -109,7 +35,7 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
   const [compressSummary, setCompressSummary] = useState('');
   const [compressExpanded, setCompressExpanded] = useState(false);
   const [compressing, setCompressing] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
+  const virtRef = useRef<VirtuosoHandle>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pausedRef = useRef(false);
   const pendingSave = useRef<{ userContent: string; assistantContent: string } | null>(null);
@@ -139,21 +65,18 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
   const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
   const contextPercent = Math.min(Math.round(totalTokens / MAX_TOKENS * 100), 99);
 
-  const handleScroll = useCallback(() => {
-    if (!listRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    setIsNearBottom(scrollHeight - scrollTop - clientHeight < SCROLL_BOTTOM_THRESHOLD);
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    setIsNearBottom(atBottom);
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    if (!listRef.current) return;
-    listRef.current.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+    virtRef.current?.scrollTo({ top: 999999, behavior: 'smooth' });
     setIsNearBottom(true);
   }, []);
 
   useEffect(() => {
-    if (isNearBottom && listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
+    if (isNearBottom && virtRef.current) {
+      virtRef.current.scrollTo({ top: 999999 });
     }
   }, [messages, isNearBottom]);
 
@@ -264,9 +187,8 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
     if (!q || sending) return;
 
     pendingSave.current = { userContent: q, assistantContent: '' };
-    setMessages((prev) => [...prev, { role: 'user' as const, content: q }]);
+    setMessages((prev) => [...prev, { role: 'user' as const, content: q }, { role: 'assistant', content: '' }]);
     setInput('');
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
     await startStream(q);
   }, [input, sending, startStream]);
 
@@ -333,9 +255,9 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
         </div>
 
         <div className="flex-1 relative min-h-0">
-          <div ref={listRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto px-4 py-3 space-y-3">
-            {/* Compression separator */}
-            {compressUntil >= 0 && (
+          {/* Compression separator */}
+          {compressUntil >= 0 && (
+            <div className="px-4 pt-3">
               <div className="space-y-3">
                 <div className="flex items-center gap-3 py-1">
                   <div className="flex-1 h-px bg-border" />
@@ -356,72 +278,48 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
                   </div>
                 )}
                 {compressExpanded && messages.slice(0, compressUntil + 1).map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
-                      msg.role === 'user'
-                        ? 'bg-accent/70 text-white rounded-br-md'
-                        : 'bg-bg-2/60 border border-border/60 text-text-dim rounded-bl-md'
-                    }`}>
-                      {msg.role === 'user' ? msg.content : msg.content}
-                    </div>
-                  </div>
+                  <MessageBubble key={i} msg={msg} msgIndex={i} onCopy={handleCopyContent} />
                 ))}
               </div>
-            )}
-
-            {/* Active messages (after compression point or all if not compressed) */}
-            {messages.slice(compressUntil + 1).map((msg, i) => {
-              const realIndex = compressUntil + 1 + i;
-              return (
-                <div key={realIndex} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-accent text-white rounded-br-md'
-                      : 'bg-bg-2 border border-border text-text rounded-bl-md'
-                  }`}>
-                    {msg.role === 'user' ? (
-                      msg.content
-                    ) : msg.content ? (
-                      <div className="relative group/markdown">
-                        <div className="markdown-content prose prose-invert prose-xs max-w-none">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            rehypePlugins={[rehypeHighlight]}
-                            components={{ pre: (props: any) => <CodeBlock {...props} streaming={sending && realIndex === messages.length - 1} /> }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                        {(!sending || realIndex !== messages.length - 1) && (
-                          <div className="flex justify-end -mb-1 mt-1">
-                            <button
-                              className="w-5 h-5 flex items-center justify-center rounded text-text-mute hover:text-text hover:bg-bg-hover transition-colors opacity-0 group-hover/markdown:opacity-100"
-                              onClick={() => handleCopyContent(msg.content, realIndex)}
-                            >
-                              {copiedMsgId === realIndex ? <Check size={11} /> : <Copy size={11} />}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ) : paused ? (
-                      <span className="text-text-mute text-xs">已暂停</span>
-                    ) : (
-                      <span className="flex gap-1.5 items-center px-1 py-0.5">
-                        <span className="w-2 h-2 bg-text-dim rounded-full animate-think" style={{ animationDelay: '0ms' }} />
-                        <span className="w-2 h-2 bg-text-dim rounded-full animate-think" style={{ animationDelay: '300ms' }} />
-                        <span className="w-2 h-2 bg-text-dim rounded-full animate-think" style={{ animationDelay: '600ms' }} />
-                      </span>
-                    )}
+            </div>
+          )}
+          <Virtuoso
+            ref={virtRef}
+            className="absolute inset-0"
+            style={{ paddingTop: compressUntil >= 0 ? 0 : 12, paddingBottom: 12 }}
+            totalCount={messages.length - compressUntil - 1 + (error ? 1 : 0)}
+            atBottomStateChange={handleAtBottomChange}
+            atBottomThreshold={SCROLL_BOTTOM_THRESHOLD}
+            increaseViewportBy={{ top: 400, bottom: 400 }}
+            itemContent={(index) => {
+              if (error && index === messages.length - compressUntil - 1) {
+                return (
+                  <div className="px-4">
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-error/10 text-error text-xs">
+                      <span>{error}</span>
+                    </div>
                   </div>
+                );
+              }
+              const msgIndex = compressUntil + 1 + index;
+              const msg = messages[msgIndex];
+              if (!msg) return null;
+              return (
+                <div className="px-4 py-0.5">
+                  <MessageBubble
+                    msg={msg}
+                    msgIndex={msgIndex}
+                    isStreaming={false}
+                    copiedMsgId={copiedMsgId}
+                    onCopy={handleCopyContent}
+                  />
                 </div>
               );
-            })}
-            {error && (
-              <div className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-error/10 text-error text-xs">
-                <span>{error}</span>
-              </div>
-            )}
-          </div>
+            }}
+            components={{
+              EmptyPlaceholder: () => null,
+            }}
+          />
 
           {!isNearBottom && (
             <button
@@ -486,7 +384,10 @@ export const StudioChatPreview: React.FC<Props> = ({ appId, config, conversation
                   </button>
                   <button
                     className="w-[30px] h-[30px] rounded-full bg-bg-3 border border-border text-text-dim inline-flex items-center justify-center transition-colors duration-150 hover:text-text hover:border-text-mute"
-                    onClick={() => { setPaused(false); setSending(false); }}
+                    onClick={() => {
+                      setPaused(false);
+                      setSending(false);
+                    }}
                   >
                     <Square size={12} />
                   </button>
