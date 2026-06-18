@@ -260,6 +260,9 @@ class ExtensionPluginOut(BaseModel):
     installed: bool
     is_active: bool
     error: str | None = None
+    runtime: str = "python"
+    package_id: str = ""
+    env_vars_json: str = "{}"
     created_at: datetime
     updated_at: datetime
 

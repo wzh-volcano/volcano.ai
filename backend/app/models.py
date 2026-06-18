@@ -180,6 +180,9 @@ class PluginExtension(Base):
     installed: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    runtime: Mapped[str] = mapped_column(String(32), default="python")
+    package_id: Mapped[str] = mapped_column(String(255), default="")
+    env_vars_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
