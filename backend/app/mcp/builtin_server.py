@@ -65,6 +65,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "skill_get_guide":
         return await _handle_skill_get_guide(arguments)
     else:
+        logger.warning("Unknown tool called: %s", name)
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
@@ -74,7 +75,7 @@ async def _handle_knowledge_search(arguments: dict) -> list[TextContent]:
     from app.providers import get_current_embedding
     from app.rag import vectorstore
 
-    query = arguments["query"]
+    query = arguments.get("query", "")
     kb_ids = arguments.get("kb_ids")
 
     db = SessionLocal()
@@ -103,7 +104,8 @@ async def _handle_knowledge_search(arguments: dict) -> list[TextContent]:
                         "score": round(score, 4),
                         "filename": chunk.document.filename if chunk.document else "",
                     })
-            except Exception:
+            except Exception as e:
+                logger.warning("knowledge_search failed for kb_id %d: %s", kb_id, e)
                 continue
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
@@ -117,7 +119,7 @@ async def _handle_skill_get_guide(arguments: dict) -> list[TextContent]:
     from app.database import SessionLocal
     from app.models import App
 
-    query = arguments["query"]
+    query = arguments.get("query", "")
     app_id = arguments.get("app_id")
 
     db = SessionLocal()
@@ -127,7 +129,10 @@ async def _handle_skill_get_guide(arguments: dict) -> list[TextContent]:
         if app_id:
             app = db.get(App, app_id)
             if app:
-                config = json.loads(app.config_json or "{}")
+                try:
+                    config = json.loads(app.config_json or "{}")
+                except json.JSONDecodeError:
+                    config = {}
                 skill_names = config.get("skill_names", [])
                 enabled = [s for s in enabled if s.name in skill_names]
         matched = injector.match(query, enabled)
