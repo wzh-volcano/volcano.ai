@@ -39,6 +39,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ExtensionPlugin, Plugin } from '@/types';
+import { MarketImportModal } from '@/components/MarketImportModal';
 
 interface ConfigFormState {
   base_url: string;
@@ -104,6 +105,8 @@ export const PluginManagementPage: React.FC = () => {
   const [importOpen, setImportOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [importing, setImporting] = useState(false);
+
+  const [marketOpen, setMarketOpen] = useState(false);
 
   const [query, setQuery] = useState('');
   const [tabFilter, setTabFilter] = useState<TabFilter>('all');
@@ -461,6 +464,10 @@ export const PluginManagementPage: React.FC = () => {
           >
             <LinkIcon size={14} />
             URL 导入
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setMarketOpen(true)} className="gap-1.5">
+            <Search size={14} />
+            市场导入
           </Button>
           <Button size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5">
             <Upload size={14} />
@@ -1231,6 +1238,12 @@ tab === 'mcp_server' ? `MCP Server (${counts.mcp_server ?? 0})` :
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MarketImportModal
+        open={marketOpen}
+        onOpenChange={setMarketOpen}
+        onImported={loadPlugins}
+      />
     </main>
   );
 };
